@@ -507,7 +507,7 @@ EOF
 )"
 
 issue "docs(sdk): quickstart example — query a user's history in 5 lines" \
-  "area:sdk,area:docs,good first issue,docs" \
+  "area:sdk,area:docs,good first issue" \
   "$(cat <<'EOF'
 **Context**
 A short, copy-pasteable example is the best advertisement for the SDK.
@@ -712,7 +712,7 @@ EOF
 )"
 
 issue "docs: tutorial — write your own decoder in 15 minutes" \
-  "area:docs,good first issue,docs" \
+  "area:docs,good first issue" \
   "$(cat <<'EOF'
 **Context**
 Decoders are the #1 way to contribute. A friendly tutorial turns curious
@@ -737,7 +737,7 @@ EOF
 )"
 
 issue "docs: architecture overview + diagram" \
-  "area:docs,good first issue,docs" \
+  "area:docs,good first issue" \
   "$(cat <<'EOF'
 **Context**
 A clear architecture doc helps contributors understand how the pieces fit.
@@ -760,7 +760,7 @@ EOF
 )"
 
 issue "docs: API reference (REST + GraphQL)" \
-  "area:docs,good first issue,docs" \
+  "area:docs,good first issue" \
   "$(cat <<'EOF'
 **Context**
 Developers need a reference for the endpoints Stardex exposes.

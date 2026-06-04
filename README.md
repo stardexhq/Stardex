@@ -1,4 +1,4 @@
-# 🌌 Stardex
+# 🌌Stardex
 
 > **An open-source indexer & data API for Stellar / Soroban — record every contract event, query any moment in history.**
 
