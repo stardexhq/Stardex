@@ -1,0 +1,30 @@
+name: 🧩 New decoder
+description: Add support for decoding a contract's events (a great first issue!)
+title: "feat(decoders): <contract> decoder"
+labels: ["area:decoders", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for adding a decoder! A decoder turns one contract's raw events into clean,
+        typed records. See the "Write your own decoder" tutorial (backlog #30) and the
+        example `TokenDecoder` in `ingestor/crates/decoders/src/lib.rs`.
+  - type: input
+    id: contract
+    attributes:
+      label: Which contract / standard?
+      placeholder: "e.g. Soroswap pair, SAC token, a payment-streaming contract"
+    validations:
+      required: true
+  - type: textarea
+    id: events
+    attributes:
+      label: Which events should it decode?
+      placeholder: "e.g. swap, deposit, withdraw — and the fields each should extract"
+    validations:
+      required: true
+  - type: textarea
+    id: refs
+    attributes:
+      label: References
+      description: Links to the contract source, event docs, or an example transaction.

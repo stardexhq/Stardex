@@ -1,0 +1,31 @@
+name: ✨ Feature / task
+description: Propose a feature or a unit of work
+labels: ["feature"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should be built, and why.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - ingestor
+        - decoders
+        - api
+        - sdk
+        - frontend
+        - db
+        - cli
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details / acceptance criteria
+      description: What does "done" look like?
