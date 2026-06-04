@@ -1,0 +1,16 @@
+# Rust
+/ingestor/target
+target/
+
+# Node / pnpm
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Env / local
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+*.log
