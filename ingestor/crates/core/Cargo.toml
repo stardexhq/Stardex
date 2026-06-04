@@ -1,0 +1,9 @@
+[package]
+name = "stardex-core"
+description = "Stardex ingestion engine: streams Soroban events and tracks cursors."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# TODO(M1): add an async runtime + RPC/HTTP client + Postgres driver here.

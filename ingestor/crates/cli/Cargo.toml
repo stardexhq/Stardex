@@ -1,0 +1,15 @@
+[package]
+name = "stardex-cli"
+description = "The `stardex` command-line tool."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "stardex"
+path = "src/main.rs"
+
+[dependencies]
+stardex-core = { path = "../core" }
+stardex-decoders = { path = "../decoders" }
+# TODO(#28/#29): swap the hand-rolled arg parsing for `clap`.

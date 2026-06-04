@@ -1,0 +1,15 @@
+# Cargo workspace for the Stardex ingestor (the Rust "engine" wing).
+# Three crates: the core watcher, the decoders, and the CLI.
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/decoders", "crates/cli"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/stardexhq/stardex"
+
+[profile.release]
+opt-level = "z"
+lto = true
