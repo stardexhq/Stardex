@@ -51,7 +51,10 @@ impl Registry {
 
     /// Run every decoder against an event and collect what matches.
     pub fn decode(&self, event: &RawEvent) -> Vec<DecodedEvent> {
-        self.decoders.iter().filter_map(|d| d.decode(event)).collect()
+        self.decoders
+            .iter()
+            .filter_map(|d| d.decode(event))
+            .collect()
     }
 }
 
@@ -67,7 +70,12 @@ impl Decoder for TokenDecoder {
     }
 
     fn decode(&self, event: &RawEvent) -> Option<DecodedEvent> {
-        if event.topics.first().map(|t| t == "transfer").unwrap_or(false) {
+        if event
+            .topics
+            .first()
+            .map(|t| t == "transfer")
+            .unwrap_or(false)
+        {
             Some(DecodedEvent {
                 kind: "transfer".into(),
                 fields: vec![
