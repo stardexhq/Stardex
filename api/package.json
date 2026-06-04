@@ -1,0 +1,21 @@
+{
+  "name": "@stardex/api",
+  "version": "0.0.1",
+  "license": "Apache-2.0",
+  "description": "Stardex HTTP API (REST + GraphQL) over the indexed data.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@stardex/types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  }
+}
