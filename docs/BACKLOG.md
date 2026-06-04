@@ -1,103 +1,134 @@
-# 🗂️ Stardex — Campaign-Ready Issue Backlog
+# 🗂️ Stardex — Contributor Backlog & Roadmap
 
-This is the seed backlog for **Stardex**. It's structured for a [GrantFox](https://www.grantfox.xyz/) campaign:
-most issues are **approachable** (decoders, API endpoints, UI, docs) so contributors of every tier can
-pick something up, with a **small hard core** reserved for experienced contributors / the maintainer.
+Welcome! This page is the map of everything that needs building in Stardex. If
+you're looking for something to work on, you're in the right place.
 
-## How the backlog is balanced
+## New here? Read this first
 
-| Bucket | What it is | Who picks it up | Share of backlog |
-|--------|-----------|-----------------|------------------|
-| 🟢 **`good first issue`** | Self-contained: one decoder, one endpoint, one component, one doc | Anyone, incl. first-timers | ~60% |
-| 🟡 **`intermediate`** | Needs context but no deep specialization | Mid-tier contributors | ~30% |
-| 🔴 **`core` / `advanced`** | Ingestion engine, reorg/backfill correctness | Maintainer + Tier-4/5 | ~10% |
+**What Stardex is:** an open-source tool that watches the Stellar/Soroban
+blockchain, records every contract event into a normal database, and serves it
+back through an API and a dashboard — so any app can ask "what happened in the
+past?" without building its own indexer. (Full explanation in the
+[README](../README.md).)
 
-> The novelty/risk lives in the small 🔴 core; the **issue volume** (and leaderboard activity) comes from the
-> large 🟢/🟡 surface. That's the design goal — lots of mergeable work that the maintainer can confidently review.
+**How the project is built** — five connected parts, each its own folder:
 
-## Label scheme
+| Part | Folder | What it does | Language |
+|------|--------|--------------|----------|
+| **Ingestor (core)** | `ingestor/crates/core` | Watches the chain, remembers its place | Rust |
+| **Decoders** | `ingestor/crates/decoders` | Translate raw events into readable records | Rust |
+| **Storage** | `db/` | Where the data lives | Postgres / SQL |
+| **API** | `api/` | Answers questions over the web | TypeScript |
+| **SDK + types** | `packages/` | The easy button other apps use | TypeScript |
+| **Dashboard** | `frontend/` | A website to browse the data | React |
+| **CLI** | `ingestor/crates/cli` | The `stardex` command you run | Rust |
 
-- **Area:** `area:ingestor` · `area:decoders` · `area:api` · `area:sdk` · `area:frontend` · `area:db` · `area:cli` · `area:docs`
-- **Difficulty:** `good first issue` · `intermediate` · `advanced`
-- **Type:** `feature` · `test` · `docs` · `chore`
+Data flows one way: **chain → ingestor → decoders → storage → API → SDK/dashboard.**
 
----
+**How contributing works:** Stardex is listed on
+[GrantFox](https://www.grantfox.xyz/). You claim a GitHub issue, open a pull
+request, and earn USDC when it's merged. Comment on an issue to get it assigned
+before you start.
 
-## 🔴 M1 — Core ingestion (the hard core — keep this small)
+## How to read this backlog
 
-| # | Title | Labels |
-|---|-------|--------|
-| 1 | Ingestor skeleton: connect to Stellar RPC and stream new events | `area:ingestor` `advanced` `feature` |
-| 2 | Cursor/checkpoint persistence so ingestion resumes where it left off | `area:ingestor` `area:db` `advanced` `feature` |
-| 3 | Reorg detection & rollback of orphaned events | `area:ingestor` `advanced` `feature` |
-| 4 | Backfill mode: index a contract's history from a past ledger | `area:ingestor` `advanced` `feature` |
-| 5 | Postgres schema v1: `events`, `contracts`, `cursors` tables + migrations | `area:db` `intermediate` `feature` |
-| 6 | Integration test harness against a local/testnet RPC | `area:ingestor` `intermediate` `test` |
+Every issue is tagged so you can find work that fits you:
 
-## 🟡🟢 M2 — Decoders (the contribution engine — endless approachable work)
+- **Area** (`area:decoders`, `area:api`, …) — which part of the project.
+- **Difficulty:**
+  - 🟢 `good first issue` — self-contained, great for your first contribution. No deep prior knowledge needed.
+  - 🟡 `intermediate` — needs some context, but nothing exotic.
+  - 🔴 `advanced` — the hard core (the live ingestion engine). Best for experienced contributors or the maintainer.
+- **Type** — `feature`, `bug`, `test`, `docs`, `chore`.
 
-> Each decoder is a small, self-contained PR: take raw event XDR for one contract type, output typed rows.
-> Adding a decoder is the canonical `good first issue`.
-
-| # | Title | Labels |
-|---|-------|--------|
-| 7 | Decoder trait/interface + registry so decoders plug in cleanly | `area:decoders` `intermediate` `feature` |
-| 8 | Token/SAC `transfer` event decoder | `area:decoders` `good first issue` `feature` |
-| 9 | Token/SAC `mint` / `burn` / `clawback` decoder | `area:decoders` `good first issue` `feature` |
-| 10 | Derive "balance over time" from token transfer events | `area:decoders` `intermediate` `feature` |
-| 11 | Soroswap swap/liquidity event decoder | `area:decoders` `good first issue` `feature` |
-| 12 | Payment-streaming event decoder (create/withdraw/cancel) | `area:decoders` `good first issue` `feature` |
-| 13 | Generic fallback decoder: store raw decoded ScVal for unknown contracts | `area:decoders` `intermediate` `feature` |
-| 14 | Unit tests + sample fixtures for each decoder | `area:decoders` `good first issue` `test` |
-
-## 🟡🟢 M3 — API + SDK
-
-| # | Title | Labels |
-|---|-------|--------|
-| 15 | API server skeleton (health, config, Postgres connection) | `area:api` `intermediate` `feature` |
-| 16 | REST endpoint: list events for a contract (paginated, filterable) | `area:api` `good first issue` `feature` |
-| 17 | REST endpoint: events for an account/address | `area:api` `good first issue` `feature` |
-| 18 | GraphQL schema + resolvers for events & contracts | `area:api` `intermediate` `feature` |
-| 19 | Cursor-based pagination + filtering helpers | `area:api` `intermediate` `feature` |
-| 20 | `@stardex/types` — shared TS types for events & API responses | `area:sdk` `good first issue` `feature` |
-| 21 | `@stardex/sdk` — typed client wrapping the REST/GraphQL API | `area:sdk` `intermediate` `feature` |
-| 22 | SDK quickstart example: "query a user's history in 5 lines" | `area:sdk` `area:docs` `good first issue` `docs` |
-
-## 🟢 M4 — Dashboard
-
-| # | Title | Labels |
-|---|-------|--------|
-| 23 | Dashboard scaffold (React + Vite + Tailwind) | `area:frontend` `good first issue` `chore` |
-| 24 | Contract list view (indexed contracts + status) | `area:frontend` `good first issue` `feature` |
-| 25 | Event explorer table with filters & pagination | `area:frontend` `intermediate` `feature` |
-| 26 | Contract detail page with a volume-over-time chart | `area:frontend` `intermediate` `feature` |
-| 27 | Empty/loading/error states + responsive layout | `area:frontend` `good first issue` `feature` |
-
-## 🟡🟢 M5 — CLI & decoder ecosystem
-
-| # | Title | Labels |
-|---|-------|--------|
-| 28 | `stardex index <contract>` command | `area:cli` `intermediate` `feature` |
-| 29 | `stardex decoders list` + scaffold command for a new decoder | `area:cli` `good first issue` `feature` |
-| 30 | **Tutorial: "Write your own decoder in 15 minutes"** | `area:docs` `good first issue` `docs` |
-| 31 | Architecture overview doc + diagram | `area:docs` `good first issue` `docs` |
-| 32 | API reference (REST + GraphQL) | `area:docs` `good first issue` `docs` |
-
-## 🟡 M6 — Ops & deploy
-
-| # | Title | Labels |
-|---|-------|--------|
-| 33 | Dockerfile + docker-compose (ingestor + Postgres + API) | `area:ingestor` `area:db` `intermediate` `feature` |
-| 34 | Configurable retention policy (prune events older than N) | `area:db` `intermediate` `feature` |
-| 35 | CI: build, fmt, clippy, test (Rust) + lint/typecheck (TS) | `chore` `intermediate` |
+> **The easiest and most valuable place to start is a decoder** (in M2). Each one
+> is small, self-contained, and you copy an existing example — yet decoders are
+> the heart of what makes Stardex useful.
 
 ---
 
-### Notes for the maintainer
+## ✅ Already built (don't re-do these)
 
-- This seed list is **~35 issues**; in practice the **decoders** and **docs** areas alone expand to 80–100+
-  (one issue per contract type, one per endpoint, one per UI view), giving a near-unlimited contributor supply.
-- File the 🔴 `core` issues first and either tackle them yourself or reserve them for trusted contributors —
-  the rest of the backlog only needs the engine to exist, not to be perfect.
-- Keep a steady stream of `good first issue` decoders open during each campaign; they're the highest-throughput,
-  easiest-to-review, most-rewarding contributions.
+The initial scaffold already delivered these, so they're **not** open issues:
+
+- The decoder system itself (the `Decoder` trait + registry) — so you can *add* decoders today.
+- The first database schema (`contracts`, `events`, `cursors` tables).
+- The API server skeleton (`/health` + an empty `/events`).
+- The shared TypeScript types package (`@stardex/types`).
+- Continuous Integration (build/test/lint on every PR).
+
+Everything below is genuinely open.
+
+---
+
+## 🛤️ Roadmap (milestones)
+
+Work is grouped into six milestones. They build on each other, but **most issues
+can be started right now** — only the M1 engine needs to exist before things can
+be tested fully end-to-end.
+
+### 🔴 M1 — Core ingestion (the engine)
+
+**Goal:** make Stardex actually pull live events off the chain and save them.
+This is the hard core; expect Rust + async + RPC work.
+
+- **Connect to RPC and stream new events** — the heartbeat: subscribe to a contract and receive its events as they happen.
+- **Persist the cursor** — remember exactly where we stopped, so a restart resumes cleanly instead of re-reading or skipping.
+- **Detect reorgs and roll back** — if the chain reorganizes, remove events that no longer exist so our data stays truthful.
+- **Backfill history** — index a contract's *past* events starting from an older ledger, not just new ones.
+- **Integration test harness** — run the ingestor against a testnet RPC in tests.
+
+### 🟢🟡 M2 — Decoders (the contribution engine)
+
+**Goal:** teach Stardex to understand specific contracts. **This is where most
+contributions happen** — each decoder is a small, independent PR. Copy the
+example `TokenDecoder` and follow the tutorial.
+
+- **Token/SAC transfer decoder** — turn `transfer` events into "who sent what to whom."
+- **Token mint / burn / clawback decoder** — the other common token events.
+- **Balance-over-time** — derive running balances from transfer history.
+- **Soroswap swap/liquidity decoder** — decode DEX swaps and liquidity changes.
+- **Payment-streaming decoder** — decode stream create / withdraw / cancel.
+- **Generic fallback decoder** — store raw decoded values for contracts we don't specifically support yet.
+- **Tests + fixtures** — realistic sample events so decoders are provably correct.
+
+### 🟢🟡 M3 — API & SDK (serving the data)
+
+**Goal:** make the indexed data easy to query — over REST, GraphQL, and a typed
+client library.
+
+- **Connect the API to Postgres** — so endpoints read real data.
+- **List a contract's events** (paginated, filterable).
+- **Events by account/address** — everything involving one wallet.
+- **GraphQL schema + resolvers** — a flexible query layer alongside REST.
+- **Pagination + filtering helpers** — shared building blocks.
+- **Expand the SDK client** — grow it beyond the current `events()` skeleton.
+- **SDK quickstart example** — "query a user's history in 5 lines."
+
+### 🟢🟡 M4 — Dashboard (seeing the data)
+
+**Goal:** a website to browse indexed contracts and events without writing code.
+Great for frontend contributors.
+
+- **Scaffold the dashboard** — set up the React + Vite + Tailwind app.
+- **Contract list view** — what's indexed, and its status.
+- **Event explorer** — a filterable, paginated table of events.
+- **Contract detail + chart** — a per-contract page with volume over time.
+- **Polish** — empty/loading/error states and responsive layout.
+
+### 🟢🟡 M5 — CLI & docs (the developer experience)
+
+**Goal:** make Stardex pleasant to run and easy to learn.
+
+- **`stardex index <contract>`** — wire the command to real ingestion.
+- **`stardex new-decoder`** — scaffold a new decoder from a template.
+- **Decoder tutorial** — "write your own decoder in 15 minutes."
+- **Architecture overview + diagram.**
+- **API reference** (REST + GraphQL).
+
+### 🟡 M6 — Ops & deploy (running it for real)
+
+**Goal:** make Stardex easy to run anywhere.
+
+- **Docker + docker-compose** — one command to start ingestor + Postgres + API.
+- **Retention policy** — optionally prune events older than a chosen age.
