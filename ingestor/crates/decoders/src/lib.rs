@@ -1,36 +1,22 @@
-//! Stardex **decoders** — the translators.
-//!
-//! A decoder turns a [`RawEvent`] (raw blockchain gibberish) into a
-//! [`DecodedEvent`] (a clean, readable record). Adding support for a new
-//! contract means writing a new `Decoder` and registering it here — you
-//! never touch the core engine.
-//!
-//! Writing a decoder is the canonical `good first issue`. See the
-//! "Write your own decoder" tutorial (backlog issue #30).
-
 use stardex_core::RawEvent;
 use stellar_xdr::curr::{Limits, PublicKey, ReadXdr, ScAddress, ScVal};
 
-/// A decoded, typed event, ready to be stored.
+/// A decoded, typed event ready to be stored.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecodedEvent {
-    /// Decoder-defined kind, e.g. "transfer", "swap", "stream_create".
     pub kind: String,
-    /// Decoded key/value fields (kept simple for now).
     pub fields: Vec<(String, String)>,
 }
 
 /// Implement this to teach Stardex about one contract's events.
 pub trait Decoder {
-    /// Short, unique name, e.g. "token", "soroswap".
     fn name(&self) -> &'static str;
 
-    /// Return `Some(decoded)` if this decoder understands the event,
-    /// otherwise `None`.
+    /// `Some(decoded)` if this decoder understands the event, else `None`.
     fn decode(&self, event: &RawEvent) -> Option<DecodedEvent>;
 }
 
-/// Holds all registered decoders and dispatches events to them.
+/// Registered decoders, dispatched against each event.
 #[derive(Default)]
 pub struct Registry {
     decoders: Vec<Box<dyn Decoder>>,
@@ -45,12 +31,10 @@ impl Registry {
         self.decoders.push(decoder);
     }
 
-    /// Names of all registered decoders.
     pub fn names(&self) -> Vec<&'static str> {
         self.decoders.iter().map(|d| d.name()).collect()
     }
 
-    /// Run every decoder against an event and collect what matches.
     pub fn decode(&self, event: &RawEvent) -> Vec<DecodedEvent> {
         self.decoders
             .iter()
@@ -59,12 +43,9 @@ impl Registry {
     }
 }
 
-/// Decoder for Stellar Asset Contract (SAC) / token `transfer` events.
-///
-/// A transfer event is shaped like:
-///   topics: [ Symbol("transfer"), Address(from), Address(to), <asset?> ]
-///   value:  i128(amount)
-/// (SAC adds a 4th topic with the asset string; plain tokens omit it.)
+/// Decoder for SAC / token `transfer` events:
+/// `topics: [Symbol("transfer"), Address(from), Address(to), <asset?>]`,
+/// `value: i128(amount)`.
 pub struct TokenDecoder;
 
 impl Decoder for TokenDecoder {
@@ -73,16 +54,13 @@ impl Decoder for TokenDecoder {
     }
 
     fn decode(&self, event: &RawEvent) -> Option<DecodedEvent> {
-        // topic[0] must decode to the symbol "transfer".
         let topic0 = parse_scval(event.topics.first()?)?;
         if as_symbol(&topic0).as_deref() != Some("transfer") {
             return None;
         }
 
-        // topic[1] = from address, topic[2] = to address.
         let from = as_address(&parse_scval(event.topics.get(1)?)?)?;
         let to = as_address(&parse_scval(event.topics.get(2)?)?)?;
-        // value = the transferred amount (i128).
         let amount = as_i128(&parse_scval(&event.data)?)?;
 
         Some(DecodedEvent {
@@ -96,12 +74,10 @@ impl Decoder for TokenDecoder {
     }
 }
 
-/// Parse one base64-XDR `ScVal` (a single topic or the event value).
 fn parse_scval(b64: &str) -> Option<ScVal> {
     ScVal::from_xdr_base64(b64, Limits::none()).ok()
 }
 
-/// The string of a `ScVal::Symbol`, else `None`.
 fn as_symbol(v: &ScVal) -> Option<String> {
     match v {
         ScVal::Symbol(s) => Some(s.to_string()),
@@ -109,7 +85,6 @@ fn as_symbol(v: &ScVal) -> Option<String> {
     }
 }
 
-/// The strkey (`G…` account / `C…` contract) of a `ScVal::Address`, else `None`.
 fn as_address(v: &ScVal) -> Option<String> {
     let ScVal::Address(addr) = v else {
         return None;
@@ -123,7 +98,7 @@ fn as_address(v: &ScVal) -> Option<String> {
     }
 }
 
-/// The value of a `ScVal::I128`, reassembled from its hi/lo parts, else `None`.
+/// Soroban encodes i128 as hi/lo halves.
 fn as_i128(v: &ScVal) -> Option<i128> {
     match v {
         ScVal::I128(p) => Some(((p.hi as i128) << 64) | (p.lo as i128)),
@@ -131,7 +106,7 @@ fn as_i128(v: &ScVal) -> Option<i128> {
     }
 }
 
-/// Build a registry pre-loaded with the built-in decoders.
+/// Registry preloaded with the built-in decoders.
 pub fn default_registry() -> Registry {
     let mut r = Registry::new();
     r.register(Box::new(TokenDecoder));
@@ -143,7 +118,6 @@ mod tests {
     use super::*;
     use stellar_xdr::curr::{AccountId, Int128Parts, ScSymbol, ScVal, Uint256, WriteXdr};
 
-    /// Encode an `ScVal` to base64 XDR, exactly as it appears in a real event.
     fn b64(v: &ScVal) -> String {
         v.to_xdr_base64(Limits::none()).unwrap()
     }
@@ -152,7 +126,6 @@ mod tests {
         ScVal::Symbol(ScSymbol(s.try_into().unwrap()))
     }
 
-    /// An account (`G…`) address ScVal from 32 raw bytes.
     fn account(seed: u8) -> ScVal {
         let key = PublicKey::PublicKeyTypeEd25519(Uint256([seed; 32]));
         ScVal::Address(ScAddress::Account(AccountId(key)))
@@ -165,7 +138,6 @@ mod tests {
         })
     }
 
-    /// Build a transfer event the way RPC would deliver it (base64 XDR).
     fn transfer_event(amount: i128) -> RawEvent {
         RawEvent {
             ledger: 42,
@@ -187,15 +159,15 @@ mod tests {
                 .find(|(key, _)| key == k)
                 .map(|(_, v)| v.as_str())
         };
-        assert!(get("from").unwrap().starts_with('G'), "from is a G-strkey");
-        assert!(get("to").unwrap().starts_with('G'), "to is a G-strkey");
+        assert!(get("from").unwrap().starts_with('G'));
+        assert!(get("to").unwrap().starts_with('G'));
         assert_ne!(get("from"), get("to"));
         assert_eq!(get("amount"), Some("1000"));
     }
 
     #[test]
     fn decodes_large_amount_without_overflow() {
-        let big = 170_141_183_460_469_231_731i128; // > u64::MAX, exercises hi/lo
+        let big = 170_141_183_460_469_231_731i128;
         let decoded = TokenDecoder.decode(&transfer_event(big)).unwrap();
         let amount = decoded.fields.iter().find(|(k, _)| k == "amount").unwrap();
         assert_eq!(amount.1, big.to_string());
@@ -204,7 +176,7 @@ mod tests {
     #[test]
     fn ignores_non_transfer_events() {
         let mut ev = transfer_event(1);
-        ev.topics[0] = b64(&symbol("mint")); // same shape, different symbol
+        ev.topics[0] = b64(&symbol("mint"));
         assert!(TokenDecoder.decode(&ev).is_none());
     }
 

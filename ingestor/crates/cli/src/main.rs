@@ -1,8 +1,5 @@
-//! `stardex` — the command-line tool.
-//!
-//! For now this hand-parses a couple of subcommands so the skeleton runs with
-//! zero dependencies. TODO(#28/#29): replace with `clap` and wire real
-//! ingestion + a `new decoder` scaffolder.
+//! `stardex` command-line tool. TODO(#28/#29): replace hand-rolled arg parsing
+//! with `clap`.
 
 use std::env;
 

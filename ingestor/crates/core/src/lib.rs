@@ -1,10 +1,3 @@
-//! Stardex ingestion **core** — the neutral engine.
-//!
-//! It connects to Stellar RPC, pulls raw contract events, and remembers how
-//! far it has progressed (the "cursor") so it can resume after a restart.
-//! It deliberately knows *nothing* about what any event means — that's the
-//! job of the decoders crate.
-
 pub mod cursor_store;
 pub mod postgres_store;
 pub mod rpc;
@@ -13,26 +6,18 @@ pub mod rpc_client;
 pub use cursor_store::{CursorStore, InMemoryCursorStore};
 pub use postgres_store::PostgresCursorStore;
 
-/// A raw contract event pulled from RPC, before it has been decoded.
+/// A raw contract event from RPC, before decoding. Topics/data are base64 XDR.
 #[derive(Debug, Clone)]
 pub struct RawEvent {
-    /// Ledger (block) sequence the event was emitted in.
     pub ledger: u32,
-    /// Contract that emitted the event.
     pub contract_id: String,
-    /// Event topics (XDR/base64 placeholders for now).
     pub topics: Vec<String>,
-    /// Event payload (XDR/base64 placeholder for now).
     pub data: String,
 }
 
-/// Translate an RPC-shaped event into our neutral [`RawEvent`].
-///
-/// This is the seam that keeps RPC's wire format from leaking into the rest of
-/// Stardex. The RPC event's `id` is intentionally dropped here — it's used as
-/// the stream cursor, tracked separately by the ingestor, not per-event.
 impl From<rpc::RpcEvent> for RawEvent {
     fn from(e: rpc::RpcEvent) -> Self {
+        // `id` is dropped: it's the stream cursor, tracked by the ingestor.
         RawEvent {
             ledger: e.ledger,
             contract_id: e.contract_id,
@@ -42,19 +27,15 @@ impl From<rpc::RpcEvent> for RawEvent {
     }
 }
 
-/// Position in the event stream, so ingestion can resume where it left off.
+/// Position in the event stream, so ingestion can resume after a restart.
 #[derive(Debug, Clone, Default)]
 pub struct Cursor {
     pub last_ledger: u32,
     pub last_event_id: Option<String>,
 }
 
-/// How long to wait before polling again once we've caught up to the chain tip.
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// First wait after a transient RPC failure, before exponential backoff.
 const INITIAL_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
-/// Ceiling for the backoff so retries keep trying at a steady pace.
 const MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The ingestion engine.
@@ -65,14 +46,12 @@ pub struct Ingestor {
 }
 
 impl Ingestor {
-    /// Build an ingestor that keeps its cursor only in memory (does not survive
-    /// a restart). Convenient for one-off runs and tests.
+    /// Ingestor whose cursor lives only in memory (does not survive a restart).
     pub fn new(rpc_url: impl Into<String>) -> Self {
         Self::with_store(rpc_url, Box::new(InMemoryCursorStore::default()))
     }
 
-    /// Build an ingestor backed by a specific [`CursorStore`] (e.g. Postgres)
-    /// so progress survives restarts.
+    /// Ingestor backed by a specific [`CursorStore`] (e.g. Postgres).
     pub fn with_store(rpc_url: impl Into<String>, store: Box<dyn CursorStore>) -> Self {
         Self {
             rpc_url: rpc_url.into(),
@@ -89,9 +68,7 @@ impl Ingestor {
         &self.cursor
     }
 
-    /// Load the saved cursor for `stream` (if any) into this ingestor, so a
-    /// restart resumes where the previous run left off. Called automatically at
-    /// the start of [`Self::index_contract`]; exposed for testing.
+    /// Load the saved cursor for `stream` so a restart resumes from it.
     pub async fn restore_cursor(&mut self, stream: &str) -> Result<(), IngestError> {
         if let Some(saved) = self.store.load(stream).await? {
             self.cursor = saved;
@@ -99,21 +76,14 @@ impl Ingestor {
         Ok(())
     }
 
-    /// Connect to RPC and continuously stream events for `contract_id`.
-    ///
-    /// This runs forever: it pages through events as fast as the chain
-    /// produces them, and once caught up it polls every [`POLL_INTERVAL`] for
-    /// new ones. Stop it with Ctrl-C. Each event is handed to
-    /// [`Self::handle_event`] — for now that just prints it; decoding (#6) and
-    /// storage (#13) will plug in there.
+    /// Connect to RPC and continuously stream events for `contract_id`, polling
+    /// every [`POLL_INTERVAL`] once caught up. Runs until cancelled.
     pub async fn index_contract(&mut self, contract_id: &str) -> Result<(), IngestError> {
         let client = rpc_client::RpcClient::new(self.rpc_url.clone());
 
-        // Resume from the last saved position if we've indexed this before.
         self.restore_cursor(contract_id).await?;
 
-        // Where to begin. With no saved cursor, start from the current tip so
-        // we capture *new* events going forward.
+        // With no saved cursor, start from the current tip to capture new events.
         let mut start_ledger = match &self.cursor.last_event_id {
             Some(_) => None,
             None if self.cursor.last_ledger > 0 => Some(self.cursor.last_ledger),
@@ -129,8 +99,7 @@ impl Ingestor {
             let page = self
                 .fetch_page_with_retry(&client, contract_id, start_ledger, cursor)
                 .await?;
-            // After the first request the cursor carries our position; never
-            // send start_ledger again (RPC rejects sending both).
+            // RPC rejects sending both start_ledger and a cursor; the cursor wins.
             start_ledger = None;
 
             let received = page.events.len();
@@ -142,28 +111,21 @@ impl Ingestor {
                 self.handle_event(raw);
             }
 
-            // Advance our resume bookmark to the end of this page. Prefer the
-            // server's page cursor; fall back to the last event's id so we never
-            // lose our place if a non-empty page omits the top-level cursor.
+            // Fall back to the last event id if the page omits a top-level cursor.
             if let Some(next) = page.cursor.or(last_event_id) {
                 self.cursor.last_event_id = Some(next);
             }
 
-            // Persist progress so a restart resumes here. One page at a time is
-            // fine — only create/withdraw-style work, not every event.
             self.store.save(contract_id, &self.cursor).await?;
 
-            // No events means we've reached the chain tip — wait for new ledgers.
             if received == 0 {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
         }
     }
 
-    /// Fetch one page, retrying transient network failures with capped
-    /// exponential backoff. A momentary RPC outage shouldn't kill a
-    /// long-running indexer, so [`IngestError::Http`] errors are retried
-    /// forever; genuine failures (bad contract, etc.) propagate immediately.
+    /// Fetch one page, retrying transient transport errors with capped
+    /// exponential backoff; other errors propagate.
     async fn fetch_page_with_retry(
         &self,
         client: &rpc_client::RpcClient,
@@ -188,8 +150,7 @@ impl Ingestor {
         }
     }
 
-    /// Sink for one decoded-not-yet raw event. Temporary: prints a one-line
-    /// summary. TODO(#6/#13): run it through the decoder registry and persist.
+    // TODO(#13): run through the decoder registry and persist instead of print.
     fn handle_event(&self, event: RawEvent) {
         println!(
             "event @ ledger {} from {} — topics={:?}",
@@ -200,13 +161,9 @@ impl Ingestor {
 
 #[derive(Debug)]
 pub enum IngestError {
-    /// Network/transport failure talking to RPC (connection, timeout, bad body).
     Http(reqwest::Error),
-    /// RPC accepted the call but returned a JSON-RPC error (e.g. bad contract).
     Rpc { code: i64, message: String },
-    /// RPC reply had neither a `result` nor an `error` — should never happen.
     EmptyResponse,
-    /// Failure loading or saving the cursor in the backing store (e.g. Postgres).
     Store(String),
 }
 
@@ -246,8 +203,6 @@ mod tests {
         assert_eq!(ing.rpc_url(), "https://soroban-testnet.stellar.org");
     }
 
-    /// Simulates a restart: a prior run saved a cursor to the store; a fresh
-    /// ingestor backed by that same store must resume from it, not from genesis.
     #[tokio::test]
     async fn restores_saved_cursor_on_startup() {
         let store = Box::new(InMemoryCursorStore::default());
@@ -262,9 +217,8 @@ mod tests {
             .await
             .unwrap();
 
-        // New ingestor (as if the process just restarted) over the same store.
         let mut ing = Ingestor::with_store("https://rpc.example", store);
-        assert_eq!(ing.cursor().last_ledger, 0, "starts at genesis before load");
+        assert_eq!(ing.cursor().last_ledger, 0);
 
         ing.restore_cursor("CABC").await.unwrap();
         assert_eq!(ing.cursor().last_ledger, 4242);
@@ -274,7 +228,6 @@ mod tests {
         );
     }
 
-    /// An unknown stream leaves the cursor at genesis (fresh start).
     #[tokio::test]
     async fn restore_is_noop_for_unknown_stream() {
         let mut ing = Ingestor::new("https://rpc.example");
