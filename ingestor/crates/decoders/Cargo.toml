@@ -7,3 +7,7 @@ license.workspace = true
 
 [dependencies]
 stardex-core = { path = "../core" }
+# Parse Soroban event topics/data from their base64 XDR encoding.
+stellar-xdr = { version = "22", features = ["curr", "base64", "std"] }
+# Turn raw account/contract addresses into G…/C… strkey strings.
+stellar-strkey = "0.0.13"
