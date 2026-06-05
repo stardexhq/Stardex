@@ -1,0 +1,38 @@
+# Local Postgres for Stardex (backlog issue #30).
+#
+# One command gives every contributor an identical database, instead of
+# installing and configuring Postgres by hand:
+#
+#   docker compose up -d        # start Postgres in the background
+#   docker compose down         # stop it (keeps data)
+#   docker compose down -v      # stop it and wipe all data
+#
+# The ingestor / API connect with:
+#   DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex
+#
+# The schema in db/migrations/ is applied automatically the first time the
+# database is created (Postgres runs every .sql in that folder on init).
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: stardex-postgres
+    environment:
+      POSTGRES_USER: stardex
+      POSTGRES_PASSWORD: stardex
+      POSTGRES_DB: stardex
+    ports:
+      - "5432:5432"
+    volumes:
+      # Auto-apply our schema on first startup.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+      # Persist the data between restarts.
+      - stardex_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stardex -d stardex"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  stardex_pgdata:
