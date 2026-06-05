@@ -1,4 +1,3 @@
-
 use stardex_core::RawEvent;
 use stellar_xdr::curr::{Limits, PublicKey, ReadXdr, ScAddress, ScVal};
 

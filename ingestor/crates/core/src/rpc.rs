@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 
 /// A JSON-RPC 2.0 request envelope.
