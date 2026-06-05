@@ -101,14 +101,18 @@ impl Ingestor {
             start_ledger = None;
 
             let received = page.events.len();
+            let mut last_event_id = None;
             for event in page.events {
+                last_event_id = Some(event.id.clone());
                 let raw: RawEvent = event.into();
                 self.cursor.last_ledger = raw.ledger;
                 self.handle_event(raw);
             }
 
-            // Advance our resume bookmark to the end of this page.
-            if let Some(next) = page.cursor {
+            // Advance our resume bookmark to the end of this page. Prefer the
+            // server's page cursor; fall back to the last event's id so we never
+            // lose our place if a non-empty page omits the top-level cursor.
+            if let Some(next) = page.cursor.or(last_event_id) {
                 self.cursor.last_event_id = Some(next);
             }
 
@@ -131,8 +135,6 @@ impl Ingestor {
 
 #[derive(Debug)]
 pub enum IngestError {
-    /// A feature that hasn't been built yet.
-    NotImplemented(&'static str),
     /// Network/transport failure talking to RPC (connection, timeout, bad body).
     Http(reqwest::Error),
     /// RPC accepted the call but returned a JSON-RPC error (e.g. bad contract).
@@ -144,7 +146,6 @@ pub enum IngestError {
 impl std::fmt::Display for IngestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IngestError::NotImplemented(what) => write!(f, "not implemented yet: {what}"),
             IngestError::Http(e) => write!(f, "rpc transport error: {e}"),
             IngestError::Rpc { code, message } => write!(f, "rpc error {code}: {message}"),
             IngestError::EmptyResponse => write!(f, "rpc returned neither result nor error"),
