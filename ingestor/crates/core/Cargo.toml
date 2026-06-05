@@ -13,5 +13,11 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # JSON (de)serialization for the JSON-RPC request/response bodies.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-# TODO(#2): add a Postgres driver here when we persist the cursor.
+# Lets the CursorStore trait have async methods behind `dyn` dispatch.
+async-trait = "0.1"
+# Postgres driver (connection pool + async queries) for cursor persistence.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+] }

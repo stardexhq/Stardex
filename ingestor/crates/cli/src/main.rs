@@ -6,7 +6,7 @@
 
 use std::env;
 
-use stardex_core::Ingestor;
+use stardex_core::{CursorStore, InMemoryCursorStore, Ingestor, PostgresCursorStore};
 use stardex_decoders::default_registry;
 
 #[tokio::main]
@@ -19,7 +19,8 @@ async fn main() {
                 eprintln!("usage: stardex index <contract_id>");
                 std::process::exit(2);
             };
-            let mut ingestor = Ingestor::new(default_rpc());
+            let store = cursor_store().await;
+            let mut ingestor = Ingestor::with_store(default_rpc(), store);
             println!("indexing {contract} via {} ...", ingestor.rpc_url());
             if let Err(e) = ingestor.index_contract(contract).await {
                 eprintln!("stardex: {e}");
@@ -45,4 +46,25 @@ async fn main() {
 fn default_rpc() -> String {
     env::var("STARDEX_RPC_URL")
         .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string())
+}
+
+/// Pick where the ingestion cursor is stored. If `DATABASE_URL` is set we
+/// persist to Postgres (survives restarts); otherwise we keep it in memory.
+async fn cursor_store() -> Box<dyn CursorStore> {
+    match env::var("DATABASE_URL") {
+        Ok(url) => match PostgresCursorStore::connect(&url).await {
+            Ok(store) => {
+                println!("cursor: persisting to Postgres (resumes after restart)");
+                Box::new(store)
+            }
+            Err(e) => {
+                eprintln!("stardex: could not connect to Postgres: {e}");
+                std::process::exit(1);
+            }
+        },
+        Err(_) => {
+            println!("cursor: in-memory only (set DATABASE_URL to persist across restarts)");
+            Box::new(InMemoryCursorStore::default())
+        }
+    }
 }
