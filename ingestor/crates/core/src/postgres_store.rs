@@ -1,19 +1,3 @@
-//! Postgres-backed [`CursorStore`] — the real persistence so ingestion resumes
-//! after a restart.
-//!
-//! It reads and writes the `cursors` table defined in
-//! `db/migrations/0001_init.sql`:
-//!
-//! ```sql
-//! create table cursors (
-//!     stream         text primary key,   -- a contract_id, or "global"
-//!     last_ledger    integer not null default 0,
-//!     last_event_id  text,
-//!     updated_at     timestamptz not null default now()
-//! );
-//! ```
-//!
-//! The `cursors` table must already exist (run the migration first).
 
 use async_trait::async_trait;
 use sqlx::postgres::PgPoolOptions;
@@ -27,8 +11,7 @@ pub struct PostgresCursorStore {
 }
 
 impl PostgresCursorStore {
-    /// Connect to Postgres at `database_url` (e.g. the `DATABASE_URL` env var)
-    /// and build a small connection pool.
+    /// Connect to Postgres at `database_url` and build a small pool.
     pub async fn connect(database_url: &str) -> Result<Self, IngestError> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
@@ -37,7 +20,6 @@ impl PostgresCursorStore {
         Ok(Self { pool })
     }
 
-    /// Build a store from an existing pool (useful when the pool is shared).
     pub fn from_pool(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -52,8 +34,7 @@ impl CursorStore for PostgresCursorStore {
             .await?;
 
         Ok(row.map(|row| {
-            // `last_ledger` is a Postgres `integer` (i32); ledger numbers stay
-            // well within i32 range for the foreseeable future.
+            // `last_ledger` is a Postgres `integer` (i32); ledgers stay in range.
             let last_ledger: i32 = row.get("last_ledger");
             let last_event_id: Option<String> = row.get("last_event_id");
             Cursor {
@@ -85,10 +66,7 @@ impl CursorStore for PostgresCursorStore {
 mod tests {
     use super::*;
 
-    /// Round-trips a cursor through a real Postgres. Ignored by default because
-    /// it needs a live database; run with:
-    ///   DATABASE_URL=postgres://... cargo test -p stardex-core -- --ignored
-    /// against a DB that has the `cursors` table (migration 0001).
+    /// Needs a live DB: DATABASE_URL=... cargo test -p stardex-core -- --ignored
     #[tokio::test]
     #[ignore = "requires DATABASE_URL to a Postgres with the cursors table"]
     async fn postgres_round_trip() {

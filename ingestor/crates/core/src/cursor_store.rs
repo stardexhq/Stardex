@@ -1,11 +1,4 @@
-//! Where the ingestion **cursor** is saved and restored from.
-//!
-//! The engine doesn't care *how* the cursor is stored — only that it can load
-//! the last position on startup and save progress as it goes. That contract is
-//! the [`CursorStore`] trait. Keeping it behind a trait means the core stays
-//! database-agnostic and the resume logic is testable without a live database
-//! (see [`InMemoryCursorStore`]). The real implementation
-//! ([`crate::postgres_store::PostgresCursorStore`]) writes to Postgres.
+//! Persistence seam for the ingestion [`Cursor`]; keeps the core db-agnostic.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -17,15 +10,11 @@ use crate::{Cursor, IngestError};
 /// Loads and persists the ingestion [`Cursor`] for a stream (a `contract_id`).
 #[async_trait]
 pub trait CursorStore: Send + Sync {
-    /// Return the saved cursor for `stream`, or `None` if we've never indexed it.
     async fn load(&self, stream: &str) -> Result<Option<Cursor>, IngestError>;
-
-    /// Persist `cursor` as the latest position for `stream`.
     async fn save(&self, stream: &str, cursor: &Cursor) -> Result<(), IngestError>;
 }
 
-/// An in-memory store: used in tests and as the default when no database is
-/// configured, so `stardex index` still runs without Postgres (it just won't
+/// In-memory store: the default when no database is configured (does not
 /// survive a restart).
 #[derive(Default)]
 pub struct InMemoryCursorStore {
@@ -68,7 +57,6 @@ mod tests {
             loaded.last_event_id.as_deref(),
             Some("0000000100-0000000001")
         );
-        // a different stream is still empty
         assert!(store.load("C2").await.unwrap().is_none());
     }
 }
