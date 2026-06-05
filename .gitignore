@@ -14,6 +14,9 @@ dist/
 # Local-only progress tracker (never pushed)
 IMPLEMENTATION.md
 
+# Local-only research / positioning notes (never pushed)
+POSITIONING.md
+
 # OS / editor
 .DS_Store
 *.log
