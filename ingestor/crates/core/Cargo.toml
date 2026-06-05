@@ -6,4 +6,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# TODO(M1): add an async runtime + RPC/HTTP client + Postgres driver here.
+# Async runtime — lets ingestion wait on the network without blocking.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+# HTTP client for talking to Stellar RPC (rustls = no system OpenSSL needed).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# JSON (de)serialization for the JSON-RPC request/response bodies.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# TODO(#2): add a Postgres driver here when we persist the cursor.
