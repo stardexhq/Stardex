@@ -11,6 +11,9 @@ dist/
 .env
 .env.local
 
+# Local-only progress tracker (never pushed)
+IMPLEMENTATION.md
+
 # OS / editor
 .DS_Store
 *.log

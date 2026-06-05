@@ -9,7 +9,8 @@ use std::env;
 use stardex_core::Ingestor;
 use stardex_decoders::default_registry;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
 
     match args.first().map(String::as_str) {
@@ -20,7 +21,7 @@ fn main() {
             };
             let mut ingestor = Ingestor::new(default_rpc());
             println!("indexing {contract} via {} ...", ingestor.rpc_url());
-            if let Err(e) = ingestor.index_contract(contract) {
+            if let Err(e) = ingestor.index_contract(contract).await {
                 eprintln!("stardex: {e}");
                 std::process::exit(1);
             }
