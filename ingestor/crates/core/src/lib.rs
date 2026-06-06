@@ -1,10 +1,16 @@
 pub mod cursor_store;
+pub mod event_store;
+pub mod postgres_event_store;
 pub mod postgres_store;
 pub mod rpc;
 pub mod rpc_client;
+pub mod sink;
 
 pub use cursor_store::{CursorStore, InMemoryCursorStore};
+pub use event_store::{EventStore, InMemoryEventStore, StoredEvent};
+pub use postgres_event_store::PostgresEventStore;
 pub use postgres_store::PostgresCursorStore;
+pub use sink::{EventSink, PrintSink};
 
 /// A raw contract event from RPC, before decoding. Topics/data are base64 XDR.
 #[derive(Debug, Clone)]
@@ -13,6 +19,8 @@ pub struct RawEvent {
     pub contract_id: String,
     pub topics: Vec<String>,
     pub data: String,
+    /// Ledger close time as RFC3339, from RPC's `ledgerClosedAt`.
+    pub closed_at: String,
 }
 
 impl From<rpc::RpcEvent> for RawEvent {
@@ -23,6 +31,7 @@ impl From<rpc::RpcEvent> for RawEvent {
             contract_id: e.contract_id,
             topics: e.topic,
             data: e.value,
+            closed_at: e.ledger_closed_at,
         }
     }
 }
@@ -43,6 +52,7 @@ pub struct Ingestor {
     rpc_url: String,
     cursor: Cursor,
     store: Box<dyn CursorStore>,
+    sink: Box<dyn EventSink>,
 }
 
 impl Ingestor {
@@ -51,13 +61,21 @@ impl Ingestor {
         Self::with_store(rpc_url, Box::new(InMemoryCursorStore::default()))
     }
 
-    /// Ingestor backed by a specific [`CursorStore`] (e.g. Postgres).
+    /// Ingestor backed by a specific [`CursorStore`] (e.g. Postgres). Events are
+    /// printed until an [`EventSink`] is set via [`Ingestor::with_event_sink`].
     pub fn with_store(rpc_url: impl Into<String>, store: Box<dyn CursorStore>) -> Self {
         Self {
             rpc_url: rpc_url.into(),
             cursor: Cursor::default(),
             store,
+            sink: Box::new(PrintSink),
         }
+    }
+
+    /// Route each streamed event through `sink` (e.g. decode-and-store).
+    pub fn with_event_sink(mut self, sink: Box<dyn EventSink>) -> Self {
+        self.sink = sink;
+        self
     }
 
     pub fn rpc_url(&self) -> &str {
@@ -108,7 +126,7 @@ impl Ingestor {
                 last_event_id = Some(event.id.clone());
                 let raw: RawEvent = event.into();
                 self.cursor.last_ledger = raw.ledger;
-                self.handle_event(raw);
+                self.sink.handle(raw).await?;
             }
 
             // Fall back to the last event id if the page omits a top-level cursor.
@@ -148,14 +166,6 @@ impl Ingestor {
                 Err(fatal) => return Err(fatal),
             }
         }
-    }
-
-    // TODO(#13): run through the decoder registry and persist instead of print.
-    fn handle_event(&self, event: RawEvent) {
-        println!(
-            "event @ ledger {} from {} — topics={:?}",
-            event.ledger, event.contract_id, event.topics
-        );
     }
 }
 

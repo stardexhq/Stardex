@@ -21,13 +21,20 @@ Stardex is in active development, but the core engine is real and runs against l
 - ✅ **Live event streaming** from Stellar RPC — pages through a contract's events and polls for new ones, with retry/backoff through transient outages.
 - ✅ **Resumable ingestion** — the cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - ✅ **Real transfer decoding** — SAC / token `transfer` events are decoded from XDR into typed `{ from, to, amount }` records.
-- 🚧 **In progress** — storing decoded events, the REST + GraphQL API, the TypeScript SDK, and the dashboard.
+- ✅ **Decoded events stored in Postgres** — each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
+- 🚧 **In progress** — the REST + GraphQL API, the TypeScript SDK, and the dashboard.
 
 ```text
 $ stardex index CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-cursor: persisting to Postgres (resumes after restart)
+storage: Postgres (events + resumable cursor)
+indexing CDLZ… via https://soroban-testnet.stellar.org ...
 starting from current ledger 2932199
-event @ ledger 2932199 from CDLZ… — topics=["AAAADwAAAANmZWUA", …]
+
+# events land in Postgres, decoded where a decoder exists:
+kind     | fields
+---------+-------------------------------------------------------------------
+transfer | {"from":"GBSOLM…","to":"GCMLUV…","amount":"5000000"}
+raw      | {"topics":["AAAADwAAAANmZWUA", …],"data":"AAAACv//…"}
 ```
 
 ---
@@ -177,7 +184,7 @@ Stardex/
 
 - [x] **M1 — Core ingestion**: stream events from RPC, persist a resumable cursor to Postgres.
 - [ ] **M2 — Decoders**: token/SAC transfers ✅, mint/burn, swaps, payment streams, balances over time.
-- [ ] **M3 — Storage + API**: store decoded events, GraphQL/REST endpoints, cursor-based pagination.
+- [ ] **M3 — Storage + API**: store decoded events ✅, GraphQL/REST endpoints, cursor-based pagination.
 - [ ] **M4 — SDK + dashboard**: typed TS client and a browser UI to explore contracts and events.
 - [ ] **M5 — Decoder ecosystem**: Soroswap & streaming decoders, plus a "write your own decoder" guide.
 - [ ] **M6 — Ops**: reorg handling, backfill, retention policy, Docker deploy.

@@ -87,6 +87,8 @@ pub struct RpcEvent {
     pub contract_id: String,
     pub id: String,
     #[serde(default)]
+    pub ledger_closed_at: String,
+    #[serde(default)]
     pub topic: Vec<String>,
     #[serde(default)]
     pub value: String,
