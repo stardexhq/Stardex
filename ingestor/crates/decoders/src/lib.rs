@@ -1,3 +1,7 @@
+pub mod sink;
+
+pub use sink::DecodingSink;
+
 use stardex_core::RawEvent;
 use stellar_xdr::curr::{Limits, PublicKey, ReadXdr, ScAddress, ScVal};
 
@@ -9,7 +13,7 @@ pub struct DecodedEvent {
 }
 
 /// Implement this to teach Stardex about one contract's events.
-pub trait Decoder {
+pub trait Decoder: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// `Some(decoded)` if this decoder understands the event, else `None`.
@@ -144,6 +148,7 @@ mod tests {
             contract_id: "CABC".into(),
             topics: vec![b64(&symbol("transfer")), b64(&account(1)), b64(&account(2))],
             data: b64(&i128_val(amount)),
+            closed_at: "2026-06-05T00:00:00Z".into(),
         }
     }
 
@@ -187,6 +192,7 @@ mod tests {
             contract_id: "CABC".into(),
             topics: vec!["not-valid-xdr".into()],
             data: String::new(),
+            closed_at: String::new(),
         };
         assert!(TokenDecoder.decode(&ev).is_none());
     }

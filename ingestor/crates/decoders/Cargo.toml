@@ -11,3 +11,9 @@ stardex-core = { path = "../core" }
 stellar-xdr = { version = "22", features = ["curr", "base64", "std"] }
 # Turn raw account/contract addresses into G…/C… strkey strings.
 stellar-strkey = "0.0.13"
+# Async trait impl for the EventSink, and JSON for the stored event fields.
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }

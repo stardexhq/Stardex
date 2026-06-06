@@ -3,8 +3,11 @@
 
 use std::env;
 
-use stardex_core::{CursorStore, InMemoryCursorStore, Ingestor, PostgresCursorStore};
-use stardex_decoders::default_registry;
+use stardex_core::{
+    CursorStore, EventStore, InMemoryCursorStore, InMemoryEventStore, Ingestor,
+    PostgresCursorStore, PostgresEventStore,
+};
+use stardex_decoders::{default_registry, DecodingSink};
 
 #[tokio::main]
 async fn main() {
@@ -16,8 +19,10 @@ async fn main() {
                 eprintln!("usage: stardex index <contract_id>");
                 std::process::exit(2);
             };
-            let store = cursor_store().await;
-            let mut ingestor = Ingestor::with_store(default_rpc(), store);
+            let (cursor_store, event_store) = stores().await;
+            let sink = Box::new(DecodingSink::new(default_registry(), event_store));
+            let mut ingestor =
+                Ingestor::with_store(default_rpc(), cursor_store).with_event_sink(sink);
             println!("indexing {contract} via {} ...", ingestor.rpc_url());
             if let Err(e) = ingestor.index_contract(contract).await {
                 eprintln!("stardex: {e}");
@@ -45,23 +50,32 @@ fn default_rpc() -> String {
         .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string())
 }
 
-/// Pick where the ingestion cursor is stored. If `DATABASE_URL` is set we
-/// persist to Postgres (survives restarts); otherwise we keep it in memory.
-async fn cursor_store() -> Box<dyn CursorStore> {
+/// Pick where events and the ingestion cursor are stored. With `DATABASE_URL`
+/// set both persist to Postgres (resumes after restart); otherwise both stay
+/// in memory so `stardex index` still runs with no database.
+async fn stores() -> (Box<dyn CursorStore>, Box<dyn EventStore>) {
     match env::var("DATABASE_URL") {
-        Ok(url) => match PostgresCursorStore::connect(&url).await {
-            Ok(store) => {
-                println!("cursor: persisting to Postgres (resumes after restart)");
-                Box::new(store)
-            }
-            Err(e) => {
-                eprintln!("stardex: could not connect to Postgres: {e}");
-                std::process::exit(1);
-            }
-        },
+        Ok(url) => {
+            let cursors = PostgresCursorStore::connect(&url)
+                .await
+                .unwrap_or_else(|e| exit_db(e));
+            let events = PostgresEventStore::connect(&url)
+                .await
+                .unwrap_or_else(|e| exit_db(e));
+            println!("storage: Postgres (events + resumable cursor)");
+            (Box::new(cursors), Box::new(events))
+        }
         Err(_) => {
-            println!("cursor: in-memory only (set DATABASE_URL to persist across restarts)");
-            Box::new(InMemoryCursorStore::default())
+            println!("storage: in-memory only (set DATABASE_URL to persist across restarts)");
+            (
+                Box::new(InMemoryCursorStore::default()),
+                Box::new(InMemoryEventStore::default()),
+            )
         }
     }
+}
+
+fn exit_db(e: stardex_core::IngestError) -> ! {
+    eprintln!("stardex: could not connect to Postgres: {e}");
+    std::process::exit(1);
 }
