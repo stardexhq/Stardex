@@ -194,8 +194,13 @@ Stardex/
 ## Roadmap
 
 - [x] **M1 — Core ingestion**: stream events from RPC, persist a resumable cursor to Postgres.
-- [ ] **M2 — Decoders**: token/SAC transfers ✅, mint/burn, swaps, payment streams, balances over time.
-- [ ] **M3 — Storage + API**: store decoded events ✅, REST `/events` with cursor pagination ✅, GraphQL, more endpoints.
+- [ ] **M2 — Decoders**
+  - [x] token/SAC transfers
+  - [ ] mint/burn, swaps, payment streams, balances over time
+- [ ] **M3 — Storage + API**
+  - [x] store decoded events in Postgres
+  - [x] REST `/events` with filters + cursor pagination
+  - [ ] GraphQL endpoint and more REST endpoints
 - [ ] **M4 — SDK + dashboard**: typed TS client and a browser UI to explore contracts and events.
 - [ ] **M5 — Decoder ecosystem**: Soroswap & streaming decoders, plus a "write your own decoder" guide.
 - [ ] **M6 — Ops**: reorg handling, backfill, retention policy, Docker deploy.
