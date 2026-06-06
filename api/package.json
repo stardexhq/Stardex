@@ -12,10 +12,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@stardex/types": "workspace:*"
+    "@stardex/types": "workspace:*",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.10"
   }
 }

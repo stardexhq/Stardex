@@ -22,7 +22,8 @@ Stardex is in active development, but the core engine is real and runs against l
 - ✅ **Resumable ingestion** — the cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - ✅ **Real transfer decoding** — SAC / token `transfer` events are decoded from XDR into typed `{ from, to, amount }` records.
 - ✅ **Decoded events stored in Postgres** — each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
-- 🚧 **In progress** — the REST + GraphQL API, the TypeScript SDK, and the dashboard.
+- ✅ **REST API** — `GET /events` serves the indexed data with filters (`contractId`, `kind`, ledger range) and cursor pagination; `GET /health` reports DB connectivity.
+- 🚧 **In progress** — the GraphQL API, the TypeScript SDK, and the dashboard.
 
 ```text
 $ stardex index CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
@@ -146,6 +147,16 @@ DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex \
 
 Without `DATABASE_URL` it still runs — the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
 
+```bash
+# 3. serve the indexed data over HTTP (in another terminal)
+pnpm install
+DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex \
+  node api/src/index.ts
+
+# then query it:
+curl "http://localhost:8080/events?kind=transfer&limit=5"
+```
+
 ---
 
 ## Tech stack
@@ -183,8 +194,13 @@ Stardex/
 ## Roadmap
 
 - [x] **M1 — Core ingestion**: stream events from RPC, persist a resumable cursor to Postgres.
-- [ ] **M2 — Decoders**: token/SAC transfers ✅, mint/burn, swaps, payment streams, balances over time.
-- [ ] **M3 — Storage + API**: store decoded events ✅, GraphQL/REST endpoints, cursor-based pagination.
+- [ ] **M2 — Decoders**
+  - [x] token/SAC transfers
+  - [ ] mint/burn, swaps, payment streams, balances over time
+- [ ] **M3 — Storage + API**
+  - [x] store decoded events in Postgres
+  - [x] REST `/events` with filters + cursor pagination
+  - [ ] GraphQL endpoint and more REST endpoints
 - [ ] **M4 — SDK + dashboard**: typed TS client and a browser UI to explore contracts and events.
 - [ ] **M5 — Decoder ecosystem**: Soroswap & streaming decoders, plus a "write your own decoder" guide.
 - [ ] **M6 — Ops**: reorg handling, backfill, retention policy, Docker deploy.
