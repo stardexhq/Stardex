@@ -17,7 +17,9 @@ export class StardexClient {
 
   constructor(opts: StardexClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
-    this.fetchFn = opts.fetch ?? fetch;
+    // Bind to the global so the browser's `fetch` keeps `this === window`;
+    // calling it as `this.fetchFn(...)` otherwise throws "Illegal invocation".
+    this.fetchFn = opts.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
   /** Query indexed events with optional filters + cursor pagination. */
