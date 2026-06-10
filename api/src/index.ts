@@ -14,6 +14,17 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   res.setHeader("content-type", "application/json");
 
+  // Public read-only data API: allow browser dashboards on any origin.
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-methods", "GET, OPTIONS");
+  res.setHeader("access-control-allow-headers", "content-type");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   try {
     if (url.pathname === "/health") {
       const dbOk = await pingDb();
