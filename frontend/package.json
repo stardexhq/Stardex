@@ -16,7 +16,8 @@
     "@stardex/sdk": "workspace:*",
     "@stardex/types": "workspace:*",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

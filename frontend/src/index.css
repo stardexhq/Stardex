@@ -1,20 +1,52 @@
 @import "tailwindcss";
 
 @theme {
-  --color-base: #0b1020;
-  --color-surface: #141a2e;
+  --color-base: #0a0e1c;
+  --color-surface: #11172b;
+  --color-surface-2: #161d35;
   --color-border: #232b45;
   --color-accent: #7c9cff;
+  --color-accent-2: #a78bfa;
+  --color-muted: #8b93b0;
 }
 
 html {
   color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
   background: var(--color-base);
   color: #e6e9f2;
   font-family:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Soft purple aurora anchored to the top of the page. */
+  background-image:
+    radial-gradient(60rem 40rem at 70% -10%, rgba(124, 156, 255, 0.16), transparent 60%),
+    radial-gradient(50rem 30rem at 10% 0%, rgba(167, 139, 250, 0.12), transparent 55%);
+  background-attachment: fixed;
+}
+
+/* Gradient text used for hero headlines and accents. */
+.text-gradient {
+  background: linear-gradient(120deg, #c4b5fd, #7c9cff 55%, #38bdf8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Faint grid backdrop for hero / feature sections. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(124, 156, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(124, 156, 255, 0.06) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+}
+
+.card-glow {
+  box-shadow:
+    0 0 0 1px rgba(124, 156, 255, 0.08),
+    0 24px 60px -30px rgba(124, 156, 255, 0.45);
 }
