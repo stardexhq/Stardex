@@ -1,19 +1,28 @@
 import { useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { useHealth } from "../hooks/useHealth";
+import { useHealth, type HealthStatus } from "../hooks/useHealth";
 import { API_BASE_URL } from "../config";
 import { GITHUB_URL, NAV_LINKS } from "../site";
 
-const DOT: Record<string, string> = {
+const DOT: Record<HealthStatus, string> = {
   checking: "bg-amber-400",
   ok: "bg-emerald-400",
-  down: "bg-rose-500",
+  down: "bg-amber-400",
+  unavailable: "bg-slate-500",
 };
 
-const LABEL: Record<string, string> = {
-  checking: "Connecting…",
+const LABEL: Record<HealthStatus, string> = {
+  checking: "Connecting...",
   ok: "API online",
-  down: "API offline",
+  down: "API degraded",
+  unavailable: "API status unavailable",
+};
+
+const TITLE: Record<HealthStatus, string> = {
+  checking: API_BASE_URL,
+  ok: API_BASE_URL,
+  down: `${API_BASE_URL} responded but reports a problem`,
+  unavailable: `Could not reach ${API_BASE_URL} (it may be offline, waking up, or blocked by a browser extension)`,
 };
 
 function HealthPill() {
@@ -21,7 +30,7 @@ function HealthPill() {
   return (
     <span
       className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/60 px-3 py-1 text-xs text-slate-400"
-      title={API_BASE_URL}
+      title={TITLE[status]}
     >
       <span className={`h-2 w-2 rounded-full ${DOT[status]}`} />
       {LABEL[status]}
