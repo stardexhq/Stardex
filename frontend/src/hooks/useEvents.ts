@@ -13,29 +13,41 @@ export interface UseEventsResult {
   loading: boolean;
   refreshing: boolean;
   error: string | null;
-  hasMore: boolean;
-  loadMore: () => void;
+  /** Current page, 1-based. Page 1 is always the most recent events. */
+  page: number;
+  /** Pages discovered so far (the current page plus any known next page). */
+  pageCount: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+  goToPage: (page: number) => void;
+  next: () => void;
+  prev: () => void;
   refresh: () => void;
 }
 
 /**
- * Loads events from the Stardex API for the given filters, newest-first, with
- * "load more" cursor pagination. Filters are passed as primitives so the fetch
- * callback's dependencies stay stable.
+ * Loads one page (50) of events at a time, newest-first. Page 1 is the most
+ * recent events; navigating forward walks back through history via the API's
+ * opaque cursor. Cursors are remembered per page so Prev/Next and numbered
+ * jumps work without re-fetching from the start.
  */
 export function useEvents(contractId?: string, kind?: string): UseEventsResult {
   const [items, setItems] = useState<StardexEvent[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Identifies the latest in-flight request so stale responses are ignored
-  // when filters change before an earlier fetch resolves.
+  // Cursor to fetch each page index (0-based). cursors[0] is always undefined
+  // (the first page); cursors[i] is filled in once page i-1 has been loaded.
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasNext, setHasNext] = useState(false);
+
+  // Identifies the latest in-flight request so stale responses are ignored.
   const requestId = useRef(0);
 
   const fetchPage = useCallback(
-    async (cursor: string | undefined, append: boolean) => {
+    async (index: number, cursor: string | undefined) => {
       const id = ++requestId.current;
       setLoading(true);
       setError(null);
@@ -45,10 +57,17 @@ export function useEvents(contractId?: string, kind?: string): UseEventsResult {
       if (kind) query.kind = kind;
 
       try {
-        const page = await client.events(query);
+        const result = await client.events(query);
         if (id !== requestId.current) return;
-        setItems((prev) => (append ? [...prev, ...page.items] : page.items));
-        setNextCursor(page.nextCursor);
+        setItems(result.items);
+        setPageIndex(index);
+        setHasNext(result.nextCursor !== null);
+        // Remember the cursor for the next page (or trim if this is the last).
+        setCursors((prev) => {
+          const copy = prev.slice(0, index + 1);
+          if (result.nextCursor) copy[index + 1] = result.nextCursor;
+          return copy;
+        });
       } catch (err) {
         if (id !== requestId.current) return;
         setError(err instanceof Error ? err.message : "Failed to load events");
@@ -59,20 +78,40 @@ export function useEvents(contractId?: string, kind?: string): UseEventsResult {
     [contractId, kind],
   );
 
+  // Reset to the most recent page whenever the filters change.
   useEffect(() => {
-    void fetchPage(undefined, false);
+    setCursors([undefined]);
+    void fetchPage(0, undefined);
   }, [fetchPage]);
 
-  const loadMore = useCallback(() => {
-    if (nextCursor && !loading) void fetchPage(nextCursor, true);
-  }, [nextCursor, loading, fetchPage]);
+  const goToPage = useCallback(
+    (page: number) => {
+      const index = page - 1;
+      if (loading || index < 0 || index >= cursors.length) return;
+      void fetchPage(index, cursors[index]);
+    },
+    [loading, cursors, fetchPage],
+  );
+
+  const next = useCallback(() => {
+    if (loading || !hasNext) return;
+    const index = pageIndex + 1;
+    void fetchPage(index, cursors[index]);
+  }, [loading, hasNext, pageIndex, cursors, fetchPage]);
+
+  const prev = useCallback(() => {
+    if (loading || pageIndex === 0) return;
+    const index = pageIndex - 1;
+    void fetchPage(index, cursors[index]);
+  }, [loading, pageIndex, cursors, fetchPage]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      setCursors([undefined]);
       // Keep the indicator visible briefly so a fast response still registers.
       await Promise.all([
-        fetchPage(undefined, false),
+        fetchPage(0, undefined),
         new Promise((r) => setTimeout(r, 400)),
       ]);
     } finally {
@@ -85,8 +124,13 @@ export function useEvents(contractId?: string, kind?: string): UseEventsResult {
     loading,
     refreshing,
     error,
-    hasMore: nextCursor !== null,
-    loadMore,
+    page: pageIndex + 1,
+    pageCount: cursors.length,
+    hasNext,
+    hasPrev: pageIndex > 0,
+    goToPage,
+    next,
+    prev,
     refresh,
   };
 }
