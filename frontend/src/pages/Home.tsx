@@ -37,7 +37,7 @@ function Hero() {
 
         <p className="mx-auto mt-6 max-w-2xl text-base text-slate-400 sm:text-lg">
           Stellar&apos;s RPC only keeps a short window of history, then prunes it. Stardex
-          captures every contract event durably and makes all of chain history queryable —
+          captures every contract event durably and makes all of chain history queryable
           through a REST API, a typed SDK, and this dashboard. Self-hostable, no exotic
           dependencies.
         </p>
@@ -60,7 +60,7 @@ function TerminalPreview() {
         <span className="h-3 w-3 rounded-full bg-rose-500/80" />
         <span className="h-3 w-3 rounded-full bg-amber-400/80" />
         <span className="h-3 w-3 rounded-full bg-emerald-400/80" />
-        <span className="ml-2 text-xs text-slate-500">stardex — index</span>
+        <span className="ml-2 text-xs text-slate-500">stardex index</span>
       </div>
       <pre className="overflow-x-auto px-4 py-4 font-mono text-xs leading-relaxed text-slate-300">
         <span className="text-slate-500">$ </span>stardex index CDLZ…CYSC
@@ -91,7 +91,7 @@ function Problem() {
     <section className="mx-auto max-w-6xl px-6 py-20">
       <SectionHeading
         eyebrow="The problem"
-        title="Chain history disappears — and everyone rebuilds the same plumbing"
+        title="Chain history disappears, and everyone rebuilds the same plumbing"
         subtitle="Stellar's RPC is built for recent data. It keeps a short window, then records over its own footage. That makes the most common questions in any app surprisingly hard to answer:"
       />
       <div className="mx-auto mt-10 grid max-w-3xl gap-3">
@@ -107,7 +107,7 @@ function Problem() {
       </div>
       <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-400">
         Today every Soroban team rebuilds the same indexing service from scratch. Stardex is
-        that plumbing, built once — as a tool everyone can use and self-host.
+        that plumbing, built once, as a tool everyone can use and self-host.
       </p>
     </section>
   );
@@ -127,7 +127,7 @@ const FEATURES: Feature[] = [
   },
   {
     title: "Resumable ingestion",
-    body: "The cursor is persisted to Postgres, so a restart continues exactly where it left off — verified end-to-end on testnet.",
+    body: "The cursor is persisted to Postgres, so a restart continues exactly where it left off, verified end-to-end on testnet.",
     status: "live",
   },
   {
@@ -211,7 +211,7 @@ function Pipeline() {
       <SectionHeading
         eyebrow="Architecture"
         title="A neutral core, with pluggable decoders"
-        subtitle="The ingestor knows how to read the chain; decoders know what each contract's events mean. Adding a contract is a new decoder — never a change to the engine."
+        subtitle="The ingestor knows how to read the chain; decoders know what each contract's events mean. Adding a contract is a new decoder, never a change to the engine."
       />
       <div className="mt-12 flex flex-col items-stretch gap-3 lg:flex-row lg:items-center">
         {STAGES.map((stage, i) => (
@@ -259,8 +259,8 @@ function CallToAction() {
           Point Stardex at a contract and start capturing history
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-sm text-slate-400">
-          Self-hostable, open source, and built on plain Rust, Postgres, and TypeScript —
-          clone it and run it.
+          Self-hostable, open source, and built on plain Rust, Postgres, and TypeScript.
+          Clone it and run it.
         </p>
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <PrimaryLink to="/explorer">Explore live events →</PrimaryLink>

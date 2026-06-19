@@ -8,6 +8,11 @@
 [![Rust](https://img.shields.io/badge/core-Rust-DEA584)](#tech-stack)
 [![Postgres](https://img.shields.io/badge/store-PostgreSQL-336791)](#tech-stack)
 
+**Live demo:** [stardex.onrender.com](https://stardex.onrender.com) (browse real testnet events in the explorer).
+**Public API:** [stardex-api.onrender.com](https://stardex-api.onrender.com), try [`/events?limit=5`](https://stardex-api.onrender.com/events?limit=5) or [`/health`](https://stardex-api.onrender.com/health).
+
+
+
 Stellar's RPC only keeps a short window of history and then prunes it. Stardex captures that history durably and makes it queryable, so any dApp can ask *"every payment this user has made,"* *"this contract's daily volume,"* or *"every swap this AMM has emitted,"* without rebuilding indexing from scratch.
 
 ---
@@ -132,6 +137,14 @@ impl Decoder for TokenDecoder {
 ---
 
 ## Quick start
+
+**Try the live version, no setup:** open the [dashboard](https://stardex.onrender.com), or query the hosted API directly:
+
+```bash
+curl "https://stardex-api.onrender.com/events?limit=5"
+```
+
+To run your own instance:
 
 > Requires Rust, and Docker (or a local Postgres).
 
