@@ -17,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # Contract(s) to index. To add another, copy the "Catch up" step below.
-      CONTRACT: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+      # Contract to index: a moderate-volume token emitting `transfer` events,
+      # so the explorer shows decoded {from,to,amount} rows. To index more,
+      # copy the "Catch up" step below (cursors are per-contract, no conflict).
+      CONTRACT: CCZP7JXIY2V4UVYVTV3D5YZREYBDES2KMIULISZ2JRR6O5JBHXVLW7UB
     steps:
       - uses: actions/checkout@v4
 
