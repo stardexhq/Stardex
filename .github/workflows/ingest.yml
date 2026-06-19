@@ -1,0 +1,39 @@
+name: Index events
+
+# Keeps the hosted demo database fresh without an always-on server: every few
+# minutes this wakes up, catches the indexer up to the chain tip, and exits.
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 minutes
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+# Never let a slow run overlap the next scheduled one.
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Contract(s) to index. To add another, copy the "Catch up" step below.
+      CONTRACT: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ingestor
+
+      - name: Build ingester
+        working-directory: ingestor
+        run: cargo build --release -p stardex-cli
+
+      - name: Catch up to the chain tip
+        working-directory: ingestor
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./target/release/stardex index "$CONTRACT" --once
