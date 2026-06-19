@@ -97,6 +97,19 @@ impl Ingestor {
     /// Connect to RPC and continuously stream events for `contract_id`, polling
     /// every [`POLL_INTERVAL`] once caught up. Runs until cancelled.
     pub async fn index_contract(&mut self, contract_id: &str) -> Result<(), IngestError> {
+        self.run(contract_id, true).await
+    }
+
+    /// Stream events for `contract_id` until caught up to the tip, then return.
+    /// Suitable for scheduled / one-shot jobs (e.g. a cron worker that wakes,
+    /// catches up, and exits).
+    pub async fn catch_up(&mut self, contract_id: &str) -> Result<(), IngestError> {
+        self.run(contract_id, false).await
+    }
+
+    /// Shared streaming loop. When `continuous` is true it polls forever; when
+    /// false it returns as soon as it reaches the tip (a page with no events).
+    async fn run(&mut self, contract_id: &str, continuous: bool) -> Result<(), IngestError> {
         let client = rpc_client::RpcClient::new(self.rpc_url.clone());
 
         self.restore_cursor(contract_id).await?;
@@ -137,6 +150,9 @@ impl Ingestor {
             self.store.save(contract_id, &self.cursor).await?;
 
             if received == 0 {
+                if !continuous {
+                    return Ok(());
+                }
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
         }

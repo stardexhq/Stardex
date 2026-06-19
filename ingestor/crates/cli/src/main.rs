@@ -15,8 +15,11 @@ async fn main() {
 
     match args.first().map(String::as_str) {
         Some("index") => {
-            let Some(contract) = args.get(1) else {
-                eprintln!("usage: stardex index <contract_id>");
+            // First non-flag argument is the contract id; `--once` catches up to
+            // the tip and exits (for scheduled jobs) instead of running forever.
+            let once = args.iter().any(|a| a == "--once");
+            let Some(contract) = args.iter().skip(1).find(|a| !a.starts_with("--")) else {
+                eprintln!("usage: stardex index <contract_id> [--once]");
                 std::process::exit(2);
             };
             let (cursor_store, event_store) = stores().await;
@@ -24,9 +27,17 @@ async fn main() {
             let mut ingestor =
                 Ingestor::with_store(default_rpc(), cursor_store).with_event_sink(sink);
             println!("indexing {contract} via {} ...", ingestor.rpc_url());
-            if let Err(e) = ingestor.index_contract(contract).await {
+            let result = if once {
+                ingestor.catch_up(contract).await
+            } else {
+                ingestor.index_contract(contract).await
+            };
+            if let Err(e) = result {
                 eprintln!("stardex: {e}");
                 std::process::exit(1);
+            }
+            if once {
+                println!("stardex: caught up to tip");
             }
         }
         Some("decoders") if args.get(1).map(String::as_str) == Some("list") => {
@@ -37,8 +48,9 @@ async fn main() {
         _ => {
             eprintln!("stardex — Stellar/Soroban indexer\n");
             eprintln!("usage:");
-            eprintln!("  stardex index <contract_id>     index a contract's events");
-            eprintln!("  stardex decoders list           list registered decoders");
+            eprintln!("  stardex index <contract_id>            stream a contract's events (runs until stopped)");
+            eprintln!("  stardex index <contract_id> --once    catch up to the tip and exit (for cron jobs)");
+            eprintln!("  stardex decoders list                 list registered decoders");
             std::process::exit(2);
         }
     }
