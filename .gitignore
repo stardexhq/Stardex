@@ -17,6 +17,9 @@ IMPLEMENTATION.md
 # Local-only research / positioning notes (never pushed)
 POSITIONING.md
 
+# Local-only deploy walkthrough (never pushed)
+DEPLOY.md
+
 # OS / editor
 .DS_Store
 *.log
