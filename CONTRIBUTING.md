@@ -1,8 +1,6 @@
 # Contributing to Stardex
 
-Thanks for helping build **Stardex** — the open-source indexer & data API for Stellar / Soroban. 🌌
-
-Stardex is listed on [GrantFox](https://www.grantfox.xyz/): claim an issue, open a PR, and earn USDC on merge.
+Thanks for helping build **Stardex**, the open-source indexer & data API for Stellar / Soroban.
 
 ## Quick start
 
@@ -21,8 +19,8 @@ pnpm -r typecheck
 
 ## Where to start
 
-- 🌱 **First time?** Pick a [`good first issue`](./docs/BACKLOG.md) — most are a single decoder, endpoint, component, or doc page.
-- 🧩 **Highest leverage:** write a **decoder** for a contract you already use (tutorial: backlog issue #30). Adding a decoder never touches the core engine.
+- **First time?** Pick a [`good first issue`](./docs/BACKLOG.md). Most are a single decoder, endpoint, component, or doc page.
+- **Highest leverage:** write a **decoder** for a contract you already use (tutorial: backlog issue #30). Adding a decoder never touches the core engine.
 - See [`docs/BACKLOG.md`](./docs/BACKLOG.md) for the full, labeled backlog.
 
 ## Ground rules
