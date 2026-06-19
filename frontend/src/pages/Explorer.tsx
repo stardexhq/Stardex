@@ -2,7 +2,7 @@ import { EventExplorer } from "../components/EventExplorer";
 
 export function Explorer() {
   return (
-    <div className="mx-auto max-w-6xl px-6 py-12">
+    <div className="mx-auto max-w-screen-2xl px-6 py-12">
       <div className="mb-8">
         <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-[var(--color-accent)]">
           Live explorer

@@ -5,12 +5,13 @@ interface FilterBarProps {
   filters: EventFilters;
   onApply: (filters: EventFilters) => void;
   onRefresh: () => void;
+  refreshing?: boolean;
 }
 
 const inputClass =
   "rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-[var(--color-accent)]";
 
-export function FilterBar({ filters, onApply, onRefresh }: FilterBarProps) {
+export function FilterBar({ filters, onApply, onRefresh, refreshing }: FilterBarProps) {
   const [contractId, setContractId] = useState(filters.contractId ?? "");
   const [kind, setKind] = useState(filters.kind ?? "");
 
@@ -64,9 +65,13 @@ export function FilterBar({ filters, onApply, onRefresh }: FilterBarProps) {
       <button
         type="button"
         onClick={onRefresh}
-        className="rounded-md border border-[var(--color-border)] px-4 py-2 text-sm text-slate-300 hover:bg-[var(--color-surface)]"
+        disabled={refreshing}
+        className="inline-flex items-center gap-2 rounded-md border border-[var(--color-border)] px-4 py-2 text-sm text-slate-300 hover:bg-[var(--color-surface)] disabled:opacity-60"
       >
-        Refresh
+        {refreshing && (
+          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+        )}
+        {refreshing ? "Refreshing..." : "Refresh"}
       </button>
     </form>
   );

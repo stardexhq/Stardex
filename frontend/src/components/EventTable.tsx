@@ -1,5 +1,5 @@
 import type { StardexEvent } from "@stardex/types";
-import { summarizeFields, timeAgo, truncateMiddle } from "../lib/format";
+import { formatDateTime, summarizeFields, timeAgo, truncateMiddle } from "../lib/format";
 
 interface EventTableProps {
   events: StardexEvent[];
@@ -15,7 +15,7 @@ export function EventTable({ events }: EventTableProps) {
             <th className="px-4 py-3 font-medium">Contract</th>
             <th className="px-4 py-3 font-medium">Ledger</th>
             <th className="px-4 py-3 font-medium">Fields</th>
-            <th className="px-4 py-3 font-medium">Age</th>
+            <th className="px-4 py-3 font-medium">Time</th>
           </tr>
         </thead>
         <tbody>
@@ -38,11 +38,16 @@ export function EventTable({ events }: EventTableProps) {
                 {event.ledger.toLocaleString()}
               </td>
               <td className="px-4 py-3 font-mono text-xs text-slate-400">
-                {summarizeFields(event.fields)}
+                <span
+                  className="block max-w-[50rem] truncate"
+                  title={summarizeFields(event.fields)}
+                >
+                  {summarizeFields(event.fields)}
+                </span>
               </td>
               <td
                 className="px-4 py-3 whitespace-nowrap text-slate-400"
-                title={event.closedAt}
+                title={formatDateTime(event.closedAt)}
               >
                 {timeAgo(event.closedAt)}
               </td>

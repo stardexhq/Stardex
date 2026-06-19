@@ -11,6 +11,7 @@ export interface EventFilters {
 export interface UseEventsResult {
   items: StardexEvent[];
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   hasMore: boolean;
   loadMore: () => void;
@@ -26,6 +27,7 @@ export function useEvents(contractId?: string, kind?: string): UseEventsResult {
   const [items, setItems] = useState<StardexEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Identifies the latest in-flight request so stale responses are ignored
@@ -65,13 +67,23 @@ export function useEvents(contractId?: string, kind?: string): UseEventsResult {
     if (nextCursor && !loading) void fetchPage(nextCursor, true);
   }, [nextCursor, loading, fetchPage]);
 
-  const refresh = useCallback(() => {
-    void fetchPage(undefined, false);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Keep the indicator visible briefly so a fast response still registers.
+      await Promise.all([
+        fetchPage(undefined, false),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchPage]);
 
   return {
     items,
     loading,
+    refreshing,
     error,
     hasMore: nextCursor !== null,
     loadMore,

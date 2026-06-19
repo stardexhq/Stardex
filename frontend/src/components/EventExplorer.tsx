@@ -5,16 +5,19 @@ import { EventTable } from "./EventTable";
 
 export function EventExplorer() {
   const [filters, setFilters] = useState<EventFilters>({});
-  const { items, loading, error, hasMore, loadMore, refresh } = useEvents(
-    filters.contractId,
-    filters.kind,
-  );
+  const { items, loading, refreshing, error, hasMore, loadMore, refresh } =
+    useEvents(filters.contractId, filters.kind);
 
   const initialLoading = loading && items.length === 0;
 
   return (
     <section className="flex flex-col gap-4">
-      <FilterBar filters={filters} onApply={setFilters} onRefresh={refresh} />
+      <FilterBar
+        filters={filters}
+        onApply={setFilters}
+        onRefresh={refresh}
+        refreshing={refreshing}
+      />
 
       {error && (
         <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
