@@ -135,9 +135,30 @@ impl Ingestor {
 
         loop {
             let cursor = self.cursor.last_event_id.clone();
-            let page = self
+            let page = match self
                 .fetch_page_with_retry(&client, contract_id, start_ledger, cursor)
-                .await?;
+                .await
+            {
+                Ok(page) => page,
+                // The cursor fell behind the RPC's retention window (it prunes old
+                // ledgers). Skip ahead to the oldest ledger it still serves and
+                // resume; events before that are gone from this RPC, see backfill.
+                Err(err) => match retention_floor(&err) {
+                    Some(floor) => {
+                        eprintln!(
+                            "stardex: {contract_id} cursor is behind the RPC retention \
+                             window; skipping ahead to ledger {floor} (earlier events are \
+                             no longer served by this RPC)"
+                        );
+                        self.cursor.last_ledger = floor;
+                        self.cursor.last_event_id = None;
+                        self.store.save(contract_id, &self.cursor).await?;
+                        start_ledger = Some(floor);
+                        continue;
+                    }
+                    None => return Err(err),
+                },
+            };
             // RPC rejects sending both start_ledger and a cursor; the cursor wins.
             start_ledger = None;
 
@@ -193,6 +214,23 @@ impl Ingestor {
     }
 }
 
+/// If `err` is the RPC "startLedger must be within the ledger range" rejection,
+/// return the oldest ledger the RPC still serves (the window floor) so ingestion
+/// can skip its stale cursor forward to it.
+fn retention_floor(err: &IngestError) -> Option<u32> {
+    let IngestError::Rpc { message, .. } = err else {
+        return None;
+    };
+    parse_retention_range(message).map(|(floor, _tip)| floor)
+}
+
+/// Pull `(min, max)` out of a "... ledger range: <min> - <max>" message.
+fn parse_retention_range(message: &str) -> Option<(u32, u32)> {
+    let range = message.split_once("ledger range:")?.1;
+    let (min, max) = range.split_once('-')?;
+    Some((min.trim().parse().ok()?, max.trim().parse().ok()?))
+}
+
 #[derive(Debug)]
 pub enum IngestError {
     Http(reqwest::Error),
@@ -235,6 +273,25 @@ mod tests {
         let ing = Ingestor::new("https://soroban-testnet.stellar.org");
         assert_eq!(ing.cursor().last_ledger, 0);
         assert_eq!(ing.rpc_url(), "https://soroban-testnet.stellar.org");
+    }
+
+    #[test]
+    fn retention_floor_reads_the_window_start() {
+        let err = IngestError::Rpc {
+            code: -32600,
+            message: "startLedger must be within the ledger range: 3524293 - 3645252".into(),
+        };
+        assert_eq!(retention_floor(&err), Some(3524293));
+    }
+
+    #[test]
+    fn retention_floor_ignores_unrelated_errors() {
+        let err = IngestError::Rpc {
+            code: -32602,
+            message: "filter 1 invalid: contract ID 1 invalid".into(),
+        };
+        assert_eq!(retention_floor(&err), None);
+        assert_eq!(retention_floor(&IngestError::EmptyResponse), None);
     }
 
     #[tokio::test]
