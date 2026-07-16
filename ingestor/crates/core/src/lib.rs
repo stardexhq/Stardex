@@ -1,16 +1,24 @@
+pub mod contract_store;
 pub mod cursor_store;
 pub mod event_store;
+pub mod pool;
 pub mod postgres_event_store;
 pub mod postgres_store;
 pub mod rpc;
 pub mod rpc_client;
 pub mod sink;
+pub mod supervisor;
 
+pub use contract_store::{ContractStore, InMemoryContractStore, PostgresContractStore};
 pub use cursor_store::{CursorStore, InMemoryCursorStore};
 pub use event_store::{EventStore, InMemoryEventStore, StoredEvent};
+pub use pool::connect_pool;
 pub use postgres_event_store::PostgresEventStore;
 pub use postgres_store::PostgresCursorStore;
 pub use sink::{EventSink, PrintSink};
+pub use supervisor::{IngestorFactory, Supervisor};
+
+pub use sqlx::PgPool;
 
 /// A raw contract event from RPC, before decoding. Topics/data are base64 XDR.
 #[derive(Debug, Clone)]
