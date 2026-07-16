@@ -22,6 +22,7 @@ Stellar's RPC only keeps a short window of history and then prunes it. Stardex c
 Stardex is in active development, but the core engine is real and runs against live testnet:
 
 - [x] **Live event streaming** from Stellar RPC. Pages through a contract's events and polls for new ones, with retry/backoff through transient outages.
+- [x] **Multi-contract indexing.** Register any number of contracts (`stardex add`) and index them all at once with `stardex run`. Each contract runs on its own task with its own cursor, so one contract failing is isolated and retried without stalling the rest.
 - [x] **Resumable ingestion.** The cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - [x] **Real transfer decoding.** SAC / token `transfer` events are decoded from XDR into typed `{ from, to, amount }` records.
 - [x] **Decoded events stored in Postgres.** Each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
@@ -108,7 +109,7 @@ Stardex is built on one core idea: a **neutral ingestion engine** that knows *ho
 |-----------|------|------|
 | **Ingestor** (`ingestor/crates/core`) | Rust | Streams events from RPC, tracks cursors, handles backfill & reorgs. |
 | **Decoders** (`ingestor/crates/decoders`) | Rust | Per-contract XDR to typed rows. **Where most contributions happen.** |
-| **CLI** (`ingestor/crates/cli`) | Rust | `stardex index <contract>`, manage decoders, run backfills. |
+| **CLI** (`ingestor/crates/cli`) | Rust | `stardex add` / `run` to index many contracts, `index` for one, plus decoders & backfills. |
 | **Store** (`db/`) | SQL | Postgres schema, migrations, retention. |
 | **API** (`api/`) | TypeScript | GraphQL + REST over the indexed data. |
 | **SDK / types** (`packages/`) | TypeScript | `@stardex/sdk` + `@stardex/types`, the typed client. |
@@ -152,13 +153,15 @@ To run your own instance:
 # 1. start Postgres (auto-applies the schema in db/migrations)
 docker compose up -d
 
-# 2. stream a contract's events, persisting progress to Postgres
+# 2. register the contracts you want to index, then index them all at once
 cd ingestor
-DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex \
-  cargo run -p stardex-cli -- index <CONTRACT_ID>
+export DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex
+cargo run -p stardex-cli -- add <CONTRACT_ID>
+cargo run -p stardex-cli -- add <ANOTHER_CONTRACT_ID>
+cargo run -p stardex-cli -- run
 ```
 
-Without `DATABASE_URL` it still runs; the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
+`stardex run` indexes every registered contract concurrently. To stream a single contract without registering it, use `stardex index <CONTRACT_ID>` (add `--once` to catch up to the tip and exit, for scheduled jobs). Without `DATABASE_URL` the single-contract `index` still runs; the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
 
 ```bash
 # 3. serve the indexed data over HTTP (in another terminal)
@@ -217,6 +220,10 @@ Stardex/
 - [x] **M4: SDK + dashboard.** Typed `@stardex/sdk` client and a multi-page React UI to explore indexed events.
 - [ ] **M5: Decoder ecosystem.** Soroswap & streaming decoders, plus a "write your own decoder" guide.
 - [ ] **M6: Ops.** Reorg handling, backfill, retention policy, Docker deploy.
+- [ ] **M7: Multi-contract indexing service.**
+  - [x] register contracts and index them concurrently, isolated per contract (`stardex add` / `run`)
+  - [ ] auto-recover a contract whose cursor falls behind the RPC retention window
+  - [ ] add/remove contracts at runtime without a restart
 
 ## Contributing
 
