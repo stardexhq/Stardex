@@ -222,7 +222,7 @@ Stardex/
 - [ ] **M6: Ops.** Reorg handling, backfill, retention policy, Docker deploy.
 - [ ] **M7: Multi-contract indexing service.**
   - [x] register contracts and index them concurrently, isolated per contract (`stardex add` / `run`)
-  - [ ] auto-recover a contract whose cursor falls behind the RPC retention window
+  - [x] auto-recover a contract whose cursor falls behind the RPC retention window
   - [ ] add/remove contracts at runtime without a restart
 
 ## Contributing
