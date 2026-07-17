@@ -18,6 +18,7 @@ async fn main() {
     match args.first().map(String::as_str) {
         Some("index") => cmd_index(&args).await,
         Some("add") => cmd_add(&args).await,
+        Some("remove") => cmd_remove(&args).await,
         Some("run") => cmd_run().await,
         Some("contracts") if args.get(1).map(String::as_str) == Some("list") => {
             cmd_contracts_list().await
@@ -85,35 +86,49 @@ async fn cmd_add(args: &[String]) {
         .register(contract, tip)
         .await
         .unwrap_or_else(|e| exit_db(e));
-    println!("registered {contract} (tracking from ledger {tip}); run `stardex run` to index it");
+    println!(
+        "registered {contract} (tracking from ledger {tip}); \
+         a running `stardex run` picks it up within seconds"
+    );
 }
 
-/// `stardex run` — index every registered contract concurrently.
+/// `stardex remove <contract>` — stop indexing a contract, keeping its history.
+async fn cmd_remove(args: &[String]) {
+    let Some(contract) = args.get(1) else {
+        eprintln!("usage: stardex remove <contract_id>");
+        std::process::exit(2);
+    };
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    PostgresContractStore::from_pool(pool)
+        .unregister(contract)
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    println!("stopped indexing {contract}; everything it already indexed is kept");
+}
+
+/// `stardex run` — index every registered contract concurrently, following the
+/// registry so `add` and `remove` take effect without a restart.
 async fn cmd_run() {
     let pool = connect_pool(&require_database_url())
         .await
         .unwrap_or_else(|e| exit_db(e));
-    let contracts = PostgresContractStore::from_pool(pool.clone())
+    let registered = PostgresContractStore::from_pool(pool.clone())
         .list()
         .await
         .unwrap_or_else(|e| exit_db(e));
 
-    if contracts.is_empty() {
-        eprintln!("no contracts registered yet — add one with `stardex add <contract_id>`");
-        return;
-    }
-
     println!(
-        "indexing {} contract(s) via {}:",
-        contracts.len(),
+        "stardex: watching the contract registry via {}",
         default_rpc()
     );
-    for contract in &contracts {
-        println!("  - {contract}");
+    if registered.is_empty() {
+        println!("no contracts registered yet — `stardex add <contract_id>` and it starts indexing automatically");
     }
 
-    Supervisor::new(default_rpc(), PgFactory { pool })
-        .run(contracts)
+    Supervisor::new(default_rpc(), PgFactory { pool: pool.clone() })
+        .watch(Box::new(PostgresContractStore::from_pool(pool)))
         .await;
 }
 
@@ -201,8 +216,11 @@ fn exit_db(e: IngestError) -> ! {
 fn usage() {
     eprintln!("stardex — Stellar/Soroban indexer\n");
     eprintln!("usage:");
-    eprintln!("  stardex run                            index all registered contracts (needs DATABASE_URL)");
+    eprintln!("  stardex run                            index all registered contracts, following add/remove live");
     eprintln!("  stardex add <contract_id>              register a contract to index (needs DATABASE_URL)");
+    eprintln!(
+        "  stardex remove <contract_id>           stop indexing a contract, keeping its history"
+    );
     eprintln!("  stardex index <contract_id> [--once]   index a single contract; --once catches up and exits");
     eprintln!("  stardex contracts list                 list registered contracts");
     eprintln!("  stardex decoders list                  list registered decoders");
