@@ -22,7 +22,7 @@ Stellar's RPC only keeps a short window of history and then prunes it. Stardex c
 Stardex is in active development, but the core engine is real and runs against live testnet:
 
 - [x] **Live event streaming** from Stellar RPC. Pages through a contract's events and polls for new ones, with retry/backoff through transient outages.
-- [x] **Multi-contract indexing.** Register any number of contracts (`stardex add`) and index them all at once with `stardex run`. Each contract runs on its own task with its own cursor, so one contract failing is isolated and retried without stalling the rest.
+- [x] **Multi-contract indexing.** Register any number of contracts (`stardex add`) and index them all at once with `stardex run`. Each contract runs on its own task with its own cursor, so one contract failing is isolated and retried without stalling the rest. Adding or removing a contract takes effect on a running indexer, no restart needed.
 - [x] **Resumable ingestion.** The cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - [x] **Real transfer decoding.** SAC / token `transfer` events are decoded from XDR into typed `{ from, to, amount }` records.
 - [x] **Decoded events stored in Postgres.** Each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
@@ -161,7 +161,14 @@ cargo run -p stardex-cli -- add <ANOTHER_CONTRACT_ID>
 cargo run -p stardex-cli -- run
 ```
 
-`stardex run` indexes every registered contract concurrently. To stream a single contract without registering it, use `stardex index <CONTRACT_ID>` (add `--once` to catch up to the tip and exit, for scheduled jobs). Without `DATABASE_URL` the single-contract `index` still runs; the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
+`stardex run` indexes every registered contract concurrently and keeps following the registry, so you can `stardex add` or `stardex remove` a contract in another terminal and the running indexer picks it up within a few seconds. Removing keeps everything that contract already indexed; it just stops following it.
+
+```bash
+cargo run -p stardex-cli -- contracts list   # what is being indexed
+cargo run -p stardex-cli -- remove <CONTRACT_ID>
+```
+
+To stream a single contract without registering it, use `stardex index <CONTRACT_ID>` (add `--once` to catch up to the tip and exit, for scheduled jobs). Without `DATABASE_URL` the single-contract `index` still runs; the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
 
 ```bash
 # 3. serve the indexed data over HTTP (in another terminal)
@@ -223,7 +230,7 @@ Stardex/
 - [ ] **M7: Multi-contract indexing service.**
   - [x] register contracts and index them concurrently, isolated per contract (`stardex add` / `run`)
   - [x] auto-recover a contract whose cursor falls behind the RPC retention window
-  - [ ] add/remove contracts at runtime without a restart
+  - [x] add/remove contracts at runtime without a restart (`stardex add` / `remove`)
 
 ## Contributing
 
