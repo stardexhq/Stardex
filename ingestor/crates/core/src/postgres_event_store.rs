@@ -26,10 +26,13 @@ impl PostgresEventStore {
 #[async_trait]
 impl EventStore for PostgresEventStore {
     async fn store(&self, event: &StoredEvent) -> Result<(), IngestError> {
-        // The events FK requires the contract row to exist first.
+        // The events FK requires the contract row to exist first. A contract seen
+        // only through someone else's stream (e.g. the USDC contract, when a
+        // watched account is paid in USDC) is recorded inactive, so the
+        // supervisor does not start indexing that whole contract.
         sqlx::query(
-            "insert into contracts (contract_id, first_seen_ledger)
-             values ($1, $2)
+            "insert into contracts (contract_id, first_seen_ledger, active)
+             values ($1, $2, false)
              on conflict (contract_id) do nothing",
         )
         .bind(&event.contract_id)

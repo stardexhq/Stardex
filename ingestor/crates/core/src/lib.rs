@@ -1,3 +1,4 @@
+pub mod account_store;
 pub mod contract_store;
 pub mod cursor_store;
 pub mod event_store;
@@ -11,6 +12,7 @@ pub mod streams;
 pub mod subscriptions;
 pub mod supervisor;
 
+pub use account_store::{AccountStore, InMemoryAccountStore, PostgresAccountStore, WatchedAccount};
 pub use contract_store::{ContractStore, InMemoryContractStore, PostgresContractStore};
 pub use cursor_store::{CursorStore, InMemoryCursorStore};
 pub use event_store::{EventStore, InMemoryEventStore, StoredEvent};
@@ -20,13 +22,17 @@ pub use postgres_store::PostgresCursorStore;
 pub use sink::{EventSink, PrintSink};
 pub use streams::Dispatcher;
 pub use subscriptions::{Subscription, Subscriptions};
-pub use supervisor::{IngestorFactory, Supervisor};
+pub use supervisor::{CombinedRegistry, IngestorFactory, StreamRegistry, Supervisor};
 
+pub use rpc::EventFilter;
 pub use sqlx::PgPool;
 
 /// A raw contract event from RPC, before decoding. Topics/data are base64 XDR.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RawEvent {
+    /// RPC's unique event id, stable across re-reads of the same ledger.
+    pub event_id: String,
+    pub tx_hash: String,
     pub ledger: u32,
     pub contract_id: String,
     pub topics: Vec<String>,
@@ -37,14 +43,57 @@ pub struct RawEvent {
 
 impl From<rpc::RpcEvent> for RawEvent {
     fn from(e: rpc::RpcEvent) -> Self {
-        // `id` is dropped: it's the stream cursor, tracked by the ingestor.
         RawEvent {
+            event_id: e.id,
+            tx_hash: e.tx_hash,
             ledger: e.ledger,
             contract_id: e.contract_id,
             topics: e.topic,
             data: e.value,
             closed_at: e.ledger_closed_at,
         }
+    }
+}
+
+/// What a stream follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamKind {
+    /// Every event one contract emits.
+    Contract,
+    /// Every transfer paid to one account.
+    Account,
+}
+
+/// One independently indexed stream of events, with its own cursor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamSpec {
+    /// Cursor name. A contract stream uses the bare contract id so cursors
+    /// saved before account streams existed still resume.
+    pub key: String,
+    /// The contract id or account address being followed.
+    pub target: String,
+    pub kind: StreamKind,
+    pub filters: Vec<EventFilter>,
+}
+
+impl StreamSpec {
+    pub fn contract(contract_id: &str) -> Self {
+        Self {
+            key: contract_id.to_string(),
+            target: contract_id.to_string(),
+            kind: StreamKind::Contract,
+            filters: vec![EventFilter::contract(contract_id)],
+        }
+    }
+
+    /// Fails if `address` is not a plain `G...` account address.
+    pub fn account(address: &str) -> Result<Self, IngestError> {
+        Ok(Self {
+            key: format!("account:{address}"),
+            target: address.to_string(),
+            kind: StreamKind::Account,
+            filters: vec![EventFilter::transfers_to(address)?],
+        })
     }
 }
 
@@ -109,22 +158,28 @@ impl Ingestor {
     /// Connect to RPC and continuously stream events for `contract_id`, polling
     /// every [`POLL_INTERVAL`] once caught up. Runs until cancelled.
     pub async fn index_contract(&mut self, contract_id: &str) -> Result<(), IngestError> {
-        self.run(contract_id, true).await
+        self.run(&StreamSpec::contract(contract_id), true).await
     }
 
     /// Stream events for `contract_id` until caught up to the tip, then return.
     /// Suitable for scheduled / one-shot jobs (e.g. a cron worker that wakes,
     /// catches up, and exits).
     pub async fn catch_up(&mut self, contract_id: &str) -> Result<(), IngestError> {
-        self.run(contract_id, false).await
+        self.run(&StreamSpec::contract(contract_id), false).await
+    }
+
+    /// Continuously stream any [`StreamSpec`]. Runs until cancelled.
+    pub async fn index_stream(&mut self, spec: &StreamSpec) -> Result<(), IngestError> {
+        self.run(spec, true).await
     }
 
     /// Shared streaming loop. When `continuous` is true it polls forever; when
     /// false it returns as soon as it reaches the tip (a page with no events).
-    async fn run(&mut self, contract_id: &str, continuous: bool) -> Result<(), IngestError> {
+    async fn run(&mut self, spec: &StreamSpec, continuous: bool) -> Result<(), IngestError> {
         let client = rpc_client::RpcClient::new(self.rpc_url.clone());
+        let stream = spec.key.as_str();
 
-        self.restore_cursor(contract_id).await?;
+        self.restore_cursor(stream).await?;
 
         // With no saved cursor, start from the current tip to capture new events.
         let mut start_ledger = match &self.cursor.last_event_id {
@@ -140,7 +195,7 @@ impl Ingestor {
         loop {
             let cursor = self.cursor.last_event_id.clone();
             let page = match self
-                .fetch_page_with_retry(&client, contract_id, start_ledger, cursor)
+                .fetch_page_with_retry(&client, &spec.filters, start_ledger, cursor)
                 .await
             {
                 Ok(page) => page,
@@ -150,13 +205,13 @@ impl Ingestor {
                 Err(err) => match retention_floor(&err) {
                     Some(floor) => {
                         eprintln!(
-                            "stardex: {contract_id} cursor is behind the RPC retention \
+                            "stardex: {stream} cursor is behind the RPC retention \
                              window; skipping ahead to ledger {floor} (earlier events are \
                              no longer served by this RPC)"
                         );
                         self.cursor.last_ledger = floor;
                         self.cursor.last_event_id = None;
-                        self.store.save(contract_id, &self.cursor).await?;
+                        self.store.save(stream, &self.cursor).await?;
                         start_ledger = Some(floor);
                         continue;
                     }
@@ -180,7 +235,7 @@ impl Ingestor {
                 self.cursor.last_event_id = Some(next);
             }
 
-            self.store.save(contract_id, &self.cursor).await?;
+            self.store.save(stream, &self.cursor).await?;
 
             if received == 0 {
                 if !continuous {
@@ -196,14 +251,14 @@ impl Ingestor {
     async fn fetch_page_with_retry(
         &self,
         client: &rpc_client::RpcClient,
-        contract_id: &str,
+        filters: &[EventFilter],
         start_ledger: Option<u32>,
         cursor: Option<String>,
     ) -> Result<rpc::GetEventsResult, IngestError> {
         let mut backoff = INITIAL_BACKOFF;
         loop {
             match client
-                .get_events(contract_id, start_ledger, cursor.clone())
+                .get_events(filters, start_ledger, cursor.clone())
                 .await
             {
                 Ok(page) => return Ok(page),
@@ -238,9 +293,14 @@ fn parse_retention_range(message: &str) -> Option<(u32, u32)> {
 #[derive(Debug)]
 pub enum IngestError {
     Http(reqwest::Error),
-    Rpc { code: i64, message: String },
+    Rpc {
+        code: i64,
+        message: String,
+    },
     EmptyResponse,
     Store(String),
+    /// Not a plain `G...` account address.
+    InvalidAddress(String),
 }
 
 impl std::fmt::Display for IngestError {
@@ -249,7 +309,10 @@ impl std::fmt::Display for IngestError {
             IngestError::Http(e) => write!(f, "rpc transport error: {e}"),
             IngestError::Rpc { code, message } => write!(f, "rpc error {code}: {message}"),
             IngestError::EmptyResponse => write!(f, "rpc returned neither result nor error"),
-            IngestError::Store(msg) => write!(f, "cursor store error: {msg}"),
+            IngestError::Store(msg) => write!(f, "store error: {msg}"),
+            IngestError::InvalidAddress(addr) => {
+                write!(f, "{addr} is not a Stellar account address (G...)")
+            }
         }
     }
 }
@@ -271,6 +334,25 @@ impl From<sqlx::Error> for IngestError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contract_stream_keeps_the_bare_contract_id_as_cursor_key() {
+        let spec = StreamSpec::contract("CABC");
+        assert_eq!(spec.key, "CABC");
+        assert_eq!(spec.kind, StreamKind::Contract);
+        assert_eq!(spec.filters, vec![EventFilter::contract("CABC")]);
+    }
+
+    #[test]
+    fn account_stream_is_namespaced_and_validated() {
+        let address = "GBTF2Z62VJD4B54NGIS6JTGNPVH2O5HQNQF4S75NHVZIBP4JONQMRP7K";
+        let spec = StreamSpec::account(address).unwrap();
+        assert_eq!(spec.key, format!("account:{address}"));
+        assert_eq!(spec.target, address);
+        assert_eq!(spec.kind, StreamKind::Account);
+
+        assert!(StreamSpec::account("CABC").is_err());
+    }
 
     #[test]
     fn new_ingestor_starts_at_genesis_cursor() {
