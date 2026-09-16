@@ -5,9 +5,9 @@ use std::env;
 
 use stardex_core::rpc_client::RpcClient;
 use stardex_core::{
-    connect_pool, ContractStore, CursorStore, EventSink, EventStore, InMemoryCursorStore,
-    InMemoryEventStore, IngestError, Ingestor, IngestorFactory, PgPool, PostgresContractStore,
-    PostgresCursorStore, PostgresEventStore, Supervisor,
+    connect_pool, ContractStore, CursorStore, Dispatcher, EventSink, EventStore,
+    InMemoryCursorStore, InMemoryEventStore, IngestError, Ingestor, IngestorFactory, PgPool,
+    PostgresContractStore, PostgresCursorStore, PostgresEventStore, Subscriptions, Supervisor,
 };
 use stardex_decoders::{default_registry, DecodingSink};
 
@@ -20,6 +20,8 @@ async fn main() {
         Some("add") => cmd_add(&args).await,
         Some("remove") => cmd_remove(&args).await,
         Some("run") => cmd_run().await,
+        Some("streams") => cmd_streams(&args).await,
+        Some("subscriptions") => cmd_subscriptions(&args).await,
         Some("contracts") if args.get(1).map(String::as_str) == Some("list") => {
             cmd_contracts_list().await
         }
@@ -132,6 +134,110 @@ async fn cmd_run() {
         .await;
 }
 
+/// `stardex streams [--once]` — deliver indexed events to subscriber webhooks.
+/// Runs as its own process so a slow receiver can never hold up indexing.
+/// `--once` drains what is due and exits, for cron-style jobs with no worker.
+async fn cmd_streams(args: &[String]) {
+    let once = args.iter().any(|a| a == "--once");
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let dispatcher = Dispatcher::new(pool);
+    if once {
+        dispatcher.run_once().await;
+    } else {
+        dispatcher.run().await;
+    }
+}
+
+/// `stardex subscriptions <add|list|remove>` — manage webhook subscriptions.
+async fn cmd_subscriptions(args: &[String]) {
+    match args.get(1).map(String::as_str) {
+        Some("add") => cmd_subscriptions_add(args).await,
+        Some("list") => cmd_subscriptions_list().await,
+        Some("remove") => cmd_subscriptions_remove(args).await,
+        _ => {
+            eprintln!("usage: stardex subscriptions <add|list|remove>");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `stardex subscriptions add <url> [--contract <id>] [--kind <kind>]`. Leaving
+/// a filter out means "any": no filters at all subscribes to every event.
+async fn cmd_subscriptions_add(args: &[String]) {
+    let Some(url) = positional(args, 2) else {
+        eprintln!("usage: stardex subscriptions add <url> [--contract <id>] [--kind <kind>]");
+        std::process::exit(2);
+    };
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    let (id, secret) = Subscriptions::from_pool(pool)
+        .create(url, flag(args, "--contract"), flag(args, "--kind"))
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    println!("subscription {id} -> {url}");
+    println!("  contract: {}", flag(args, "--contract").unwrap_or("any"));
+    println!("  kind:     {}", flag(args, "--kind").unwrap_or("any"));
+    println!("  secret:   {secret}");
+    println!("save the secret now, it is not shown again; verify it against the");
+    println!("x-stardex-signature header (sha256=HMAC of the exact request body)");
+}
+
+/// `stardex subscriptions list` — print every subscription, retired included.
+async fn cmd_subscriptions_list() {
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let subscriptions = Subscriptions::from_pool(pool)
+        .list()
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    if subscriptions.is_empty() {
+        eprintln!("no subscriptions — add one with `stardex subscriptions add <url>`");
+        return;
+    }
+    for s in subscriptions {
+        let state = if s.active { "active" } else { "retired" };
+        let contract = s.contract_id.as_deref().unwrap_or("any");
+        let kind = s.kind.as_deref().unwrap_or("any");
+        println!(
+            "{} [{state}] contract={contract} kind={kind} -> {}",
+            s.id, s.url
+        );
+    }
+}
+
+/// `stardex subscriptions remove <id>` — stop delivering to a subscription.
+async fn cmd_subscriptions_remove(args: &[String]) {
+    let Some(raw) = positional(args, 2) else {
+        eprintln!("usage: stardex subscriptions remove <id>");
+        std::process::exit(2);
+    };
+    let Ok(id) = raw.parse::<i64>() else {
+        eprintln!("stardex: subscription id must be a number, got {raw}");
+        std::process::exit(2);
+    };
+
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let existed = Subscriptions::from_pool(pool)
+        .deactivate(id)
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    if !existed {
+        eprintln!("stardex: no subscription with id {id}");
+        std::process::exit(1);
+    }
+    println!("subscription {id} retired; it will stop receiving events");
+}
+
 /// `stardex contracts list` — print the registered contracts.
 async fn cmd_contracts_list() {
     let pool = connect_pool(&require_database_url())
@@ -166,6 +272,25 @@ impl IngestorFactory for PgFactory {
         let store: Box<dyn EventStore> = Box::new(PostgresEventStore::from_pool(self.pool.clone()));
         Box::new(DecodingSink::new(default_registry(), store))
     }
+}
+
+/// Value of a `--name value` flag, if it was passed.
+fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+    let at = args.iter().position(|a| a == name)?;
+    args.get(at + 1).map(String::as_str)
+}
+
+/// First plain argument after `skip`, stepping over any `--flag value` pairs.
+fn positional(args: &[String], skip: usize) -> Option<&str> {
+    let mut rest = args.iter().skip(skip);
+    while let Some(arg) = rest.next() {
+        if arg.starts_with("--") {
+            rest.next();
+            continue;
+        }
+        return Some(arg);
+    }
+    None
 }
 
 /// RPC endpoint, overridable via the STARDEX_RPC_URL env var.
@@ -224,4 +349,10 @@ fn usage() {
     eprintln!("  stardex index <contract_id> [--once]   index a single contract; --once catches up and exits");
     eprintln!("  stardex contracts list                 list registered contracts");
     eprintln!("  stardex decoders list                  list registered decoders");
+    eprintln!();
+    eprintln!("streams (push indexed events to webhooks):");
+    eprintln!("  stardex streams [--once]               run the delivery dispatcher; --once drains and exits");
+    eprintln!("  stardex subscriptions add <url>        subscribe a webhook; --contract and --kind filter it");
+    eprintln!("  stardex subscriptions list             list subscriptions");
+    eprintln!("  stardex subscriptions remove <id>      stop delivering to a subscription");
 }
