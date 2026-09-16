@@ -75,7 +75,7 @@ mod tests {
     use crate::default_registry;
     use stardex_core::InMemoryEventStore;
     use std::sync::Arc;
-    use stellar_xdr::curr::{
+    use stellar_xdr::{
         AccountId, Int128Parts, Limits, PublicKey, ScAddress, ScSymbol, ScVal, Uint256, WriteXdr,
     };
 
