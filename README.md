@@ -15,6 +15,17 @@
 
 Stellar's RPC only keeps a short window of history and then prunes it. Stardex captures that history durably and makes it queryable, so any dApp can ask *"every payment this user has made,"* *"this contract's daily volume,"* or *"every swap this AMM has emitted,"* without rebuilding indexing from scratch.
 
+## Repositories
+
+This repo is the engine. The rest of Stardex lives in separate repos in the [stardexhq](https://github.com/stardexhq) org:
+
+| Repo | What it is |
+|---|---|
+| **stardex** (this repo) | Rust ingester, decoders and CLI, plus the Postgres schema in `db/migrations` |
+| [stardex-backend](https://github.com/stardexhq/stardex-backend) | HTTP API over the database |
+| [stardex-sdk](https://github.com/stardexhq/stardex-sdk) | `@stardex/sdk` on npm: typed client and shared types |
+| [stardex-frontend](https://github.com/stardexhq/stardex-frontend) | Web app, including the event explorer |
+
 ---
 
 ## What works today
@@ -26,9 +37,9 @@ Stardex is in active development, but the core engine is real and runs against l
 - [x] **Resumable ingestion.** The cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - [x] **Real transfer decoding.** SAC / token `transfer` events are decoded from XDR into typed `{ from, to, amount }` records.
 - [x] **Decoded events stored in Postgres.** Each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
-- [x] **REST API.** `GET /events` serves the indexed data with filters (`contractId`, `kind`, ledger range) and cursor pagination; `GET /health` reports DB connectivity.
-- [x] **Typed SDK.** `@stardex/sdk` (`StardexClient`) wraps the API so apps query indexed events in a few lines.
-- [x] **Web dashboard.** A multi-page React site that browses, filters, and paginates indexed events through the SDK against the live API.
+- [x] **REST API** ([stardex-backend](https://github.com/stardexhq/stardex-backend)). `GET /events` serves the indexed data with filters (`contractId`, `kind`, ledger range) and cursor pagination; `GET /health` reports DB connectivity.
+- [x] **Typed SDK** ([stardex-sdk](https://github.com/stardexhq/stardex-sdk)). `@stardex/sdk` on npm wraps the API so apps query indexed events in a few lines.
+- [x] **Web app** ([stardex-frontend](https://github.com/stardexhq/stardex-frontend)). A multi-page React site that browses, filters, and paginates indexed events through the SDK against the live API.
 - [x] **Streams (webhooks).** Subscribe a URL to a contract or event kind and Stardex posts matching events to it as they are indexed, signed with HMAC-SHA256 and retried with backoff through a durable queue. Push, so apps stop polling.
 - [ ] **In progress.** The GraphQL API and more decoders (mint/burn, swaps, payment streams).
 
@@ -112,9 +123,9 @@ Stardex is built on one core idea: a **neutral ingestion engine** that knows *ho
 | **Decoders** (`ingestor/crates/decoders`) | Rust | Per-contract XDR to typed rows. **Where most contributions happen.** |
 | **CLI** (`ingestor/crates/cli`) | Rust | `stardex add` / `run` to index many contracts, `index` for one, plus decoders & backfills. |
 | **Store** (`db/`) | SQL | Postgres schema, migrations, retention. |
-| **API** (`api/`) | TypeScript | GraphQL + REST over the indexed data. |
-| **SDK / types** (`packages/`) | TypeScript | `@stardex/sdk` + `@stardex/types`, the typed client. |
-| **Dashboard** (`frontend/`) | React | Multi-page site to browse, filter, and paginate indexed events. |
+| **API** ([stardex-backend](https://github.com/stardexhq/stardex-backend)) | TypeScript | REST over the indexed data. |
+| **SDK / types** ([stardex-sdk](https://github.com/stardexhq/stardex-sdk)) | TypeScript | `@stardex/sdk`, the typed client and shared types. |
+| **Web app** ([stardex-frontend](https://github.com/stardexhq/stardex-frontend)) | React | Multi-page site to browse, filter, and paginate indexed events. |
 
 ### Adding support for a contract = writing a decoder
 
@@ -206,15 +217,7 @@ The body mirrors what `/events` returns:
 
 Delivery is **at-least-once**, so treat `deliveryId` as an idempotency key. Any 2xx counts as accepted; anything else is retried with exponential backoff and marked `dead` after 8 attempts. Subscriptions only receive events indexed from the moment the dispatcher first runs, not a replay of existing history. Manage them with `subscriptions list` and `subscriptions remove <id>`.
 
-```bash
-# 3. serve the indexed data over HTTP (in another terminal)
-pnpm install
-DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex \
-  node api/src/index.ts
-
-# then query it:
-curl "http://localhost:8080/events?kind=transfer&limit=5"
-```
+To serve the indexed data over HTTP, run [stardex-backend](https://github.com/stardexhq/stardex-backend) against the same database, and [stardex-frontend](https://github.com/stardexhq/stardex-frontend) for the web app. Each repo's README has its setup steps.
 
 ---
 
@@ -224,28 +227,23 @@ curl "http://localhost:8080/events?kind=transfer&limit=5"
 |-------|-------|
 | Ingestor & decoders | Rust, Stellar RPC, Soroban XDR (`stellar-xdr`, `stellar-strkey`) |
 | Storage | PostgreSQL + SQL migrations |
-| API | TypeScript (GraphQL + REST) |
-| SDK / types | TypeScript (`pnpm` workspace packages) |
-| Dashboard | React + Vite + Tailwind |
+| API | TypeScript, Node ([stardex-backend](https://github.com/stardexhq/stardex-backend)) |
+| SDK / types | TypeScript, `@stardex/sdk` on npm ([stardex-sdk](https://github.com/stardexhq/stardex-sdk)) |
+| Web app | React + Vite + Tailwind ([stardex-frontend](https://github.com/stardexhq/stardex-frontend)) |
 | Infra | Docker Compose |
 
 ## Repo layout
 
 ```text
-Stardex/
+stardex/
 ├── ingestor/              # Rust workspace: engine + decoders + CLI
 │   └── crates/
-│       ├── core/          # ingestion engine: RPC stream, cursors, backfill
+│       ├── core/          # ingestion engine: RPC stream, cursors, streams
 │       ├── decoders/      # per-contract event decoders
 │       └── cli/           # `stardex` command-line tool
-├── api/                   # GraphQL + REST server (TypeScript)
-├── packages/
-│   ├── types/             # shared TS types (@stardex/types)
-│   └── sdk/               # typed client (@stardex/sdk)
-├── frontend/              # dashboard (React + Vite)
 ├── db/migrations/         # Postgres schema + migrations
 ├── docker-compose.yml     # one-command local Postgres
-└── docs/                  # guides, decoder tutorial, API reference
+└── .github/workflows/     # CI and the scheduled ingest job
 ```
 
 ---
@@ -280,7 +278,7 @@ Stardex is built **in the open for the Stellar ecosystem**. Contributions are we
 - **Highest leverage:** write a **decoder** for a contract you already use; the `token` decoder is a working reference to copy.
 - Browse all open work in [Issues](https://github.com/stardexhq/Stardex/issues).
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup and conventions.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup in this repo, and the [org contributing guide](https://github.com/stardexhq/.github/blob/main/CONTRIBUTING.md) for the rules that apply to every Stardex repo.
 
 ## License
 
