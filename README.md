@@ -34,6 +34,7 @@ Stardex is in active development, but the core engine is real and runs against l
 
 - [x] **Live event streaming** from Stellar RPC. Pages through a contract's events and polls for new ones, with retry/backoff through transient outages.
 - [x] **Multi-contract indexing.** Register any number of contracts (`stardex add`) and index them all at once with `stardex run`. Each contract runs on its own task with its own cursor, so one contract failing is isolated and retried without stalling the rest. Adding or removing a contract takes effect on a running indexer, no restart needed.
+- [x] **Account watching.** Watch a Stellar address (`stardex accounts add G...`) and `stardex run` records every payment into it, in any asset, including payments sent to its muxed addresses or with a memo.
 - [x] **Resumable ingestion.** The cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - [x] **Real transfer decoding.** Token `transfer` events, including classic payments in the CAP-67 unified format, are decoded from XDR into typed `{ from, to, amount, asset, to_muxed_id }` records. `to_muxed_id` carries the payment's muxed ID or memo, which is what lets a payment be matched to an invoice.
 - [x] **Decoded events stored in Postgres.** Each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
@@ -182,6 +183,17 @@ cargo run -p stardex-cli -- remove <CONTRACT_ID>
 
 To stream a single contract without registering it, use `stardex index <CONTRACT_ID>` (add `--once` to catch up to the tip and exit, for scheduled jobs). Without `DATABASE_URL` the single-contract `index` still runs; the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
 
+### Watch an account for incoming payments
+
+Instead of a whole contract, you can follow the payments into one address:
+
+```bash
+cargo run -p stardex-cli -- accounts add <G_ADDRESS> --label "My business"
+cargo run -p stardex-cli -- run
+```
+
+Every transfer paid to that address is stored as a `transfer` event with `from`, `to`, `amount`, `asset` and, when present, `to_muxed_id` (the muxed ID or memo). Payments sent to any `M...` address built on it arrive under the base `G...` address with the ID kept, so there is no need to watch muxed addresses separately. Watching starts from the current ledger. Manage watched accounts with `accounts list` and `accounts remove <G_ADDRESS>`.
+
 ### Get events pushed to you (Streams)
 
 Rather than polling `/events`, subscribe a URL and Stardex posts each matching event to it as it is indexed:
@@ -270,6 +282,7 @@ stardex/
   - [x] register contracts and index them concurrently, isolated per contract (`stardex add` / `run`)
   - [x] auto-recover a contract whose cursor falls behind the RPC retention window
   - [x] add/remove contracts at runtime without a restart (`stardex add` / `remove`)
+  - [x] watch accounts for incoming payments alongside contracts (`stardex accounts add`)
 
 ## Contributing
 
