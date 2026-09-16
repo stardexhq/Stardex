@@ -271,6 +271,7 @@ mod tests {
             topics: topics.iter().map(b64).collect(),
             data: b64(&data),
             closed_at: "2026-06-05T00:00:00Z".into(),
+            ..Default::default()
         }
     }
 
@@ -405,8 +406,7 @@ mod tests {
             ledger: 1,
             contract_id: "CABC".into(),
             topics: vec!["not-valid-xdr".into()],
-            data: String::new(),
-            closed_at: String::new(),
+            ..Default::default()
         };
         assert!(TokenDecoder.decode(&ev).is_none());
     }
@@ -441,7 +441,7 @@ mod testnet_fixtures {
             contract_id: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC".into(),
             topics: topics.iter().map(|t| t.to_string()).collect(),
             data: value.into(),
-            closed_at: String::new(),
+            ..Default::default()
         }
     }
 

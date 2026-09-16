@@ -53,10 +53,10 @@ impl RpcClient {
         Ok(result.sequence)
     }
 
-    /// Fetch one page of events for `contract_id`, resuming from `cursor` if set.
+    /// Fetch one page of events matching `filters`, resuming from `cursor` if set.
     pub async fn get_events(
         &self,
-        contract_id: &str,
+        filters: &[EventFilter],
         start_ledger: Option<u32>,
         cursor: Option<String>,
     ) -> Result<GetEventsResult, IngestError> {
@@ -65,7 +65,7 @@ impl RpcClient {
 
         let params = GetEventsParams {
             start_ledger,
-            filters: vec![EventFilter::contract(contract_id)],
+            filters: filters.to_vec(),
             pagination: Pagination {
                 limit: DEFAULT_PAGE_LIMIT,
                 cursor,

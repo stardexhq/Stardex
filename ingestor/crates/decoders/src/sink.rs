@@ -100,6 +100,7 @@ mod tests {
             ],
             data: b64(&ScVal::I128(Int128Parts { hi: 0, lo: 1000 })),
             closed_at: "2026-06-05T00:00:00Z".into(),
+            ..Default::default()
         }
     }
 
@@ -136,8 +137,7 @@ mod tests {
             ledger: 1,
             contract_id: "CABC".into(),
             topics: vec!["not-valid-xdr".into()],
-            data: String::new(),
-            closed_at: String::new(),
+            ..Default::default()
         };
         sink.handle(unknown).await.unwrap();
 

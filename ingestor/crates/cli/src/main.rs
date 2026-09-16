@@ -5,9 +5,10 @@ use std::env;
 
 use stardex_core::rpc_client::RpcClient;
 use stardex_core::{
-    connect_pool, ContractStore, CursorStore, Dispatcher, EventSink, EventStore,
-    InMemoryCursorStore, InMemoryEventStore, IngestError, Ingestor, IngestorFactory, PgPool,
-    PostgresContractStore, PostgresCursorStore, PostgresEventStore, Subscriptions, Supervisor,
+    connect_pool, AccountStore, CombinedRegistry, ContractStore, CursorStore, Dispatcher,
+    EventSink, EventStore, InMemoryCursorStore, InMemoryEventStore, IngestError, Ingestor,
+    IngestorFactory, PgPool, PostgresAccountStore, PostgresContractStore, PostgresCursorStore,
+    PostgresEventStore, StreamSpec, Subscriptions, Supervisor,
 };
 use stardex_decoders::{default_registry, DecodingSink};
 
@@ -22,6 +23,7 @@ async fn main() {
         Some("run") => cmd_run().await,
         Some("streams") => cmd_streams(&args).await,
         Some("subscriptions") => cmd_subscriptions(&args).await,
+        Some("accounts") => cmd_accounts(&args).await,
         Some("contracts") if args.get(1).map(String::as_str) == Some("list") => {
             cmd_contracts_list().await
         }
@@ -110,28 +112,117 @@ async fn cmd_remove(args: &[String]) {
     println!("stopped indexing {contract}; everything it already indexed is kept");
 }
 
-/// `stardex run` — index every registered contract concurrently, following the
-/// registry so `add` and `remove` take effect without a restart.
+/// `stardex run` — index every registered contract and watched account
+/// concurrently, following both registries so adds and removes take effect
+/// without a restart.
 async fn cmd_run() {
     let pool = connect_pool(&require_database_url())
         .await
         .unwrap_or_else(|e| exit_db(e));
-    let registered = PostgresContractStore::from_pool(pool.clone())
+    let contracts = PostgresContractStore::from_pool(pool.clone())
+        .list()
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let accounts = PostgresAccountStore::from_pool(pool.clone())
         .list()
         .await
         .unwrap_or_else(|e| exit_db(e));
 
     println!(
-        "stardex: watching the contract registry via {}",
+        "stardex: following {} contract(s) and {} account(s) via {}",
+        contracts.len(),
+        accounts.len(),
         default_rpc()
     );
-    if registered.is_empty() {
-        println!("no contracts registered yet — `stardex add <contract_id>` and it starts indexing automatically");
+    if contracts.is_empty() && accounts.is_empty() {
+        println!(
+            "nothing registered yet; `stardex add <contract_id>` or \
+             `stardex accounts add <address>` and it starts automatically"
+        );
     }
 
-    Supervisor::new(default_rpc(), PgFactory { pool: pool.clone() })
-        .watch(Box::new(PostgresContractStore::from_pool(pool)))
+    let registry = CombinedRegistry::new(
+        Box::new(PostgresContractStore::from_pool(pool.clone())),
+        Box::new(PostgresAccountStore::from_pool(pool.clone())),
+    );
+    Supervisor::new(default_rpc(), PgFactory { pool })
+        .watch(Box::new(registry))
         .await;
+}
+
+/// `stardex accounts <add|list|remove>` — manage watched accounts.
+async fn cmd_accounts(args: &[String]) {
+    match args.get(1).map(String::as_str) {
+        Some("add") => cmd_accounts_add(args).await,
+        Some("list") => cmd_accounts_list().await,
+        Some("remove") => cmd_accounts_remove(args).await,
+        _ => {
+            eprintln!("usage: stardex accounts <add|list|remove>");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `stardex accounts add <address> [--label <name>]` — watch an account for
+/// incoming payments in any asset.
+async fn cmd_accounts_add(args: &[String]) {
+    let Some(address) = positional(args, 2) else {
+        eprintln!("usage: stardex accounts add <address> [--label <name>]");
+        std::process::exit(2);
+    };
+    // Muxed (M...) addresses are rejected here: payments to them are already
+    // caught by watching the base G... account, with the ID kept on each event.
+    if let Err(e) = StreamSpec::account(address) {
+        eprintln!("stardex: {e}");
+        std::process::exit(2);
+    }
+
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    PostgresAccountStore::from_pool(pool)
+        .add(address, flag(args, "--label"))
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    println!("watching {address}; a running `stardex run` picks it up within seconds");
+}
+
+/// `stardex accounts list` — print watched accounts.
+async fn cmd_accounts_list() {
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let accounts = PostgresAccountStore::from_pool(pool)
+        .list()
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    if accounts.is_empty() {
+        eprintln!("no accounts watched; add one with `stardex accounts add <address>`");
+        return;
+    }
+    for account in accounts {
+        match account.label {
+            Some(label) => println!("{} ({label})", account.address),
+            None => println!("{}", account.address),
+        }
+    }
+}
+
+/// `stardex accounts remove <address>` — stop watching an account.
+async fn cmd_accounts_remove(args: &[String]) {
+    let Some(address) = positional(args, 2) else {
+        eprintln!("usage: stardex accounts remove <address>");
+        std::process::exit(2);
+    };
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    PostgresAccountStore::from_pool(pool)
+        .remove(address)
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    println!("stopped watching {address}; what it already recorded is kept");
 }
 
 /// `stardex streams [--once]` — deliver indexed events to subscriber webhooks.
@@ -258,7 +349,7 @@ async fn cmd_contracts_list() {
 }
 
 /// Builds a fresh cursor store and decoding sink per task, all over one shared
-/// pool, so every contract's events run through the same decoder registry.
+/// pool, so every stream's events run through the same decoder registry.
 struct PgFactory {
     pool: PgPool,
 }
@@ -268,7 +359,7 @@ impl IngestorFactory for PgFactory {
         Box::new(PostgresCursorStore::from_pool(self.pool.clone()))
     }
 
-    fn sink(&self) -> Box<dyn EventSink> {
+    fn sink(&self, _spec: &StreamSpec) -> Box<dyn EventSink> {
         let store: Box<dyn EventStore> = Box::new(PostgresEventStore::from_pool(self.pool.clone()));
         Box::new(DecodingSink::new(default_registry(), store))
     }
@@ -341,7 +432,7 @@ fn exit_db(e: IngestError) -> ! {
 fn usage() {
     eprintln!("stardex — Stellar/Soroban indexer\n");
     eprintln!("usage:");
-    eprintln!("  stardex run                            index all registered contracts, following add/remove live");
+    eprintln!("  stardex run                            index all registered contracts and watched accounts, following changes live");
     eprintln!("  stardex add <contract_id>              register a contract to index (needs DATABASE_URL)");
     eprintln!(
         "  stardex remove <contract_id>           stop indexing a contract, keeping its history"
@@ -349,6 +440,13 @@ fn usage() {
     eprintln!("  stardex index <contract_id> [--once]   index a single contract; --once catches up and exits");
     eprintln!("  stardex contracts list                 list registered contracts");
     eprintln!("  stardex decoders list                  list registered decoders");
+    eprintln!();
+    eprintln!("accounts (watch an address for incoming payments):");
+    eprintln!("  stardex accounts add <address>         watch a G... address; --label names it");
+    eprintln!("  stardex accounts list                  list watched accounts");
+    eprintln!(
+        "  stardex accounts remove <address>      stop watching an account, keeping its history"
+    );
     eprintln!();
     eprintln!("streams (push indexed events to webhooks):");
     eprintln!("  stardex streams [--once]               run the delivery dispatcher; --once drains and exits");

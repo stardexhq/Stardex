@@ -22,6 +22,8 @@ sqlx = { version = "0.8", default-features = false, features = [
     "postgres",
     "json",
 ] }
+# Encoding an account address as a getEvents topic filter.
+stellar-xdr = { version = "28", features = ["base64", "std"] }
 # Signing webhook payloads so receivers can verify the sender is us.
 hmac = "0.12"
 sha2 = "0.10"
