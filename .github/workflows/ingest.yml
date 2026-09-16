@@ -39,3 +39,11 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: ./target/release/stardex index "$CONTRACT" --once
+
+      # Push freshly indexed events to any registered webhook subscriptions.
+      # `--once` drains what is due and exits, matching this no-worker setup.
+      - name: Deliver webhook subscriptions
+        working-directory: ingestor
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./target/release/stardex streams --once

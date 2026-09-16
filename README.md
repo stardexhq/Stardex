@@ -29,6 +29,7 @@ Stardex is in active development, but the core engine is real and runs against l
 - [x] **REST API.** `GET /events` serves the indexed data with filters (`contractId`, `kind`, ledger range) and cursor pagination; `GET /health` reports DB connectivity.
 - [x] **Typed SDK.** `@stardex/sdk` (`StardexClient`) wraps the API so apps query indexed events in a few lines.
 - [x] **Web dashboard.** A multi-page React site that browses, filters, and paginates indexed events through the SDK against the live API.
+- [x] **Streams (webhooks).** Subscribe a URL to a contract or event kind and Stardex posts matching events to it as they are indexed, signed with HMAC-SHA256 and retried with backoff through a durable queue. Push, so apps stop polling.
 - [ ] **In progress.** The GraphQL API and more decoders (mint/burn, swaps, payment streams).
 
 ```text
@@ -170,6 +171,41 @@ cargo run -p stardex-cli -- remove <CONTRACT_ID>
 
 To stream a single contract without registering it, use `stardex index <CONTRACT_ID>` (add `--once` to catch up to the tip and exit, for scheduled jobs). Without `DATABASE_URL` the single-contract `index` still runs; the cursor just stays in memory (won't survive a restart). Stop with Ctrl-C; on the next run it resumes from where it left off.
 
+### Get events pushed to you (Streams)
+
+Rather than polling `/events`, subscribe a URL and Stardex posts each matching event to it as it is indexed:
+
+```bash
+# subscribe a webhook; leave a filter out to match anything
+cargo run -p stardex-cli -- subscriptions add https://your-app.example/hooks/stardex \
+  --contract <CONTRACT_ID> --kind transfer
+
+# run the dispatcher (its own process, so a slow receiver never stalls indexing)
+cargo run -p stardex-cli -- streams
+```
+
+For a scheduled setup with no always-on worker (the hosted demo indexes on a cron), `stardex streams --once` drains whatever is due and exits, so delivery runs right after each indexing pass.
+
+Each request carries an `x-stardex-signature: sha256=<hmac>` header, an HMAC-SHA256 of the exact request body using the secret printed when the subscription was created. Verify it before trusting a request:
+
+```js
+const want = "sha256=" + createHmac("sha256", SECRET).update(rawBody).digest("hex");
+```
+
+The body mirrors what `/events` returns:
+
+```jsonc
+{
+  "deliveryId": "8412",
+  "subscriptionId": "3",
+  "event": { "id": "1542451", "contractId": "C...", "ledger": 3653428,
+             "kind": "transfer", "fields": { "from": "G...", "amount": "5000000" },
+             "closedAt": "2026-07-17T14:31:02.000Z" }
+}
+```
+
+Delivery is **at-least-once**, so treat `deliveryId` as an idempotency key. Any 2xx counts as accepted; anything else is retried with exponential backoff and marked `dead` after 8 attempts. Subscriptions only receive events indexed from the moment the dispatcher first runs, not a replay of existing history. Manage them with `subscriptions list` and `subscriptions remove <id>`.
+
 ```bash
 # 3. serve the indexed data over HTTP (in another terminal)
 pnpm install
@@ -227,6 +263,10 @@ Stardex/
 - [x] **M4: SDK + dashboard.** Typed `@stardex/sdk` client and a multi-page React UI to explore indexed events.
 - [ ] **M5: Decoder ecosystem.** Soroswap & streaming decoders, plus a "write your own decoder" guide.
 - [ ] **M6: Ops.** Reorg handling, backfill, retention policy, Docker deploy.
+- [ ] **M8: Streams.** Push indexed events to subscriber webhooks.
+  - [x] subscriptions, durable delivery queue, retries with backoff, HMAC-signed payloads (`stardex streams`)
+  - [ ] authenticated HTTP API to manage subscriptions, plus SDK and dashboard support
+  - [ ] replay a dead delivery, and filter by account as well as contract/kind
 - [ ] **M7: Multi-contract indexing service.**
   - [x] register contracts and index them concurrently, isolated per contract (`stardex add` / `run`)
   - [x] auto-recover a contract whose cursor falls behind the RPC retention window

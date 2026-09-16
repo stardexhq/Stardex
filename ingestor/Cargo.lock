@@ -1604,9 +1604,13 @@ name = "stardex-core"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "hex",
+ "hmac",
+ "rand 0.8.6",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
 ]

@@ -7,6 +7,8 @@ pub mod postgres_store;
 pub mod rpc;
 pub mod rpc_client;
 pub mod sink;
+pub mod streams;
+pub mod subscriptions;
 pub mod supervisor;
 
 pub use contract_store::{ContractStore, InMemoryContractStore, PostgresContractStore};
@@ -16,6 +18,8 @@ pub use pool::connect_pool;
 pub use postgres_event_store::PostgresEventStore;
 pub use postgres_store::PostgresCursorStore;
 pub use sink::{EventSink, PrintSink};
+pub use streams::Dispatcher;
+pub use subscriptions::{Subscription, Subscriptions};
 pub use supervisor::{IngestorFactory, Supervisor};
 
 pub use sqlx::PgPool;
