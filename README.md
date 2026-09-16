@@ -35,7 +35,7 @@ Stardex is in active development, but the core engine is real and runs against l
 - [x] **Live event streaming** from Stellar RPC. Pages through a contract's events and polls for new ones, with retry/backoff through transient outages.
 - [x] **Multi-contract indexing.** Register any number of contracts (`stardex add`) and index them all at once with `stardex run`. Each contract runs on its own task with its own cursor, so one contract failing is isolated and retried without stalling the rest. Adding or removing a contract takes effect on a running indexer, no restart needed.
 - [x] **Resumable ingestion.** The cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
-- [x] **Real transfer decoding.** SAC / token `transfer` events are decoded from XDR into typed `{ from, to, amount }` records.
+- [x] **Real transfer decoding.** Token `transfer` events, including classic payments in the CAP-67 unified format, are decoded from XDR into typed `{ from, to, amount, asset, to_muxed_id }` records. `to_muxed_id` carries the payment's muxed ID or memo, which is what lets a payment be matched to an invoice.
 - [x] **Decoded events stored in Postgres.** Each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
 - [x] **REST API** ([stardex-backend](https://github.com/stardexhq/stardex-backend)). `GET /events` serves the indexed data with filters (`contractId`, `kind`, ledger range) and cursor pagination; `GET /health` reports DB connectivity.
 - [x] **Typed SDK** ([stardex-sdk](https://github.com/stardexhq/stardex-sdk)). `@stardex/sdk` on npm wraps the API so apps query indexed events in a few lines.
@@ -225,7 +225,7 @@ To serve the indexed data over HTTP, run [stardex-backend](https://github.com/st
 
 | Layer | Stack |
 |-------|-------|
-| Ingestor & decoders | Rust, Stellar RPC, Soroban XDR (`stellar-xdr`, `stellar-strkey`) |
+| Ingestor & decoders | Rust, Stellar RPC, Soroban XDR (`stellar-xdr`) |
 | Storage | PostgreSQL + SQL migrations |
 | API | TypeScript, Node ([stardex-backend](https://github.com/stardexhq/stardex-backend)) |
 | SDK / types | TypeScript, `@stardex/sdk` on npm ([stardex-sdk](https://github.com/stardexhq/stardex-sdk)) |
@@ -253,6 +253,7 @@ stardex/
 - [x] **M1: Core ingestion.** Stream events from RPC, persist a resumable cursor to Postgres.
 - [ ] **M2: Decoders**
   - [x] token/SAC transfers
+  - [x] CAP-67 classic payments with asset, muxed ID and memo
   - [ ] mint/burn, swaps, payment streams, balances over time
 - [ ] **M3: Storage + API**
   - [x] store decoded events in Postgres
