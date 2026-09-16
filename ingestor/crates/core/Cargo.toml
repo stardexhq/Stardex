@@ -22,3 +22,9 @@ sqlx = { version = "0.8", default-features = false, features = [
     "postgres",
     "json",
 ] }
+# Signing webhook payloads so receivers can verify the sender is us.
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+# Generating each subscription's signing secret.
+rand = "0.8"
