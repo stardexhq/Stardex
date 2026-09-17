@@ -192,6 +192,10 @@ cargo run -p stardex-cli -- accounts add <G_ADDRESS> --label "My business"
 cargo run -p stardex-cli -- run
 ```
 
+Watching starts from the ledger that was current when you ran `accounts add`, so payments sent before the watcher first runs are still recorded.
+
+For a scheduled setup with no always-on worker, `stardex run --once` catches every stream up to the tip and exits (add `--accounts-only` to skip contract streams). The hosted demo runs `run --once --accounts-only` and then `reconcile --once` every 15 minutes from GitHub Actions.
+
 Every transfer paid to that address is stored as a `transfer` event, and also recorded as a row in `payments` with its amount, asset, sender and reference (the muxed ID or memo, when present). Outgoing transfers and payments to itself are not recorded as payments, and each event is recorded only once, even if ingestion replays it.
 
 ```bash
@@ -199,7 +203,7 @@ cargo run -p stardex-cli -- payments list --account <G_ADDRESS>
 # 2026-09-17T10:03:52Z  5.0000000 XLM  from GDKA...  ref id:100042  tx 8a41...
 ```
 
-Payments sent to any `M...` address built on it arrive under the base `G...` address with the ID kept, so there is no need to watch muxed addresses separately. Watching starts from the current ledger. Manage watched accounts with `accounts list` and `accounts remove <G_ADDRESS>`.
+Payments sent to any `M...` address built on it arrive under the base `G...` address with the ID kept, so there is no need to watch muxed addresses separately. Manage watched accounts with `accounts list` and `accounts remove <G_ADDRESS>`.
 
 ### Match payments to invoices
 
