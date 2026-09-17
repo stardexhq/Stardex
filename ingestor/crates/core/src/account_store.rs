@@ -15,14 +15,23 @@ pub struct WatchedAccount {
     pub address: String,
     /// Optional human name, e.g. the business it belongs to.
     pub label: Option<String>,
+    /// Ledger current when the account was first added. Its stream starts
+    /// here, so payments made before the watcher first runs are not missed.
+    pub first_ledger: Option<u32>,
 }
 
 /// Records which accounts to watch. Adding is idempotent, and re-adding a
 /// removed account resumes watching it.
 #[async_trait]
 pub trait AccountStore: Send + Sync {
-    /// Start watching `address`. A `None` label keeps any existing label.
-    async fn add(&self, address: &str, label: Option<&str>) -> Result<(), IngestError>;
+    /// Start watching `address`. A `None` label keeps any existing label, and
+    /// `first_ledger` is only recorded the first time.
+    async fn add(
+        &self,
+        address: &str,
+        label: Option<&str>,
+        first_ledger: Option<u32>,
+    ) -> Result<(), IngestError>;
     /// Stop watching `address`, keeping what was already recorded. Unknown
     /// accounts are ignored.
     async fn remove(&self, address: &str) -> Result<(), IngestError>;
@@ -33,6 +42,7 @@ pub trait AccountStore: Send + Sync {
 struct Entry {
     order: usize,
     label: Option<String>,
+    first_ledger: Option<u32>,
     active: bool,
 }
 
@@ -44,12 +54,18 @@ pub struct InMemoryAccountStore {
 
 #[async_trait]
 impl AccountStore for InMemoryAccountStore {
-    async fn add(&self, address: &str, label: Option<&str>) -> Result<(), IngestError> {
+    async fn add(
+        &self,
+        address: &str,
+        label: Option<&str>,
+        first_ledger: Option<u32>,
+    ) -> Result<(), IngestError> {
         let mut accounts = self.accounts.lock().unwrap();
         let next = accounts.len();
         let entry = accounts.entry(address.to_string()).or_insert(Entry {
             order: next,
             label: None,
+            first_ledger,
             active: true,
         });
         entry.active = true;
@@ -75,6 +91,7 @@ impl AccountStore for InMemoryAccountStore {
             .map(|(address, e)| WatchedAccount {
                 address: address.clone(),
                 label: e.label.clone(),
+                first_ledger: e.first_ledger,
             })
             .collect())
     }
@@ -93,16 +110,23 @@ impl PostgresAccountStore {
 
 #[async_trait]
 impl AccountStore for PostgresAccountStore {
-    async fn add(&self, address: &str, label: Option<&str>) -> Result<(), IngestError> {
+    async fn add(
+        &self,
+        address: &str,
+        label: Option<&str>,
+        first_ledger: Option<u32>,
+    ) -> Result<(), IngestError> {
         sqlx::query(
-            "insert into accounts (address, label)
-             values ($1, $2)
+            "insert into accounts (address, label, first_ledger)
+             values ($1, $2, $3)
              on conflict (address) do update
                set active = true,
-                   label = coalesce(excluded.label, accounts.label)",
+                   label = coalesce(excluded.label, accounts.label),
+                   first_ledger = coalesce(accounts.first_ledger, excluded.first_ledger)",
         )
         .bind(address)
         .bind(label)
+        .bind(first_ledger.map(|l| l as i32))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -118,7 +142,8 @@ impl AccountStore for PostgresAccountStore {
 
     async fn list(&self) -> Result<Vec<WatchedAccount>, IngestError> {
         let rows = sqlx::query(
-            "select address, label from accounts where active order by added_at, address",
+            "select address, label, first_ledger from accounts
+             where active order by added_at, address",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -127,6 +152,7 @@ impl AccountStore for PostgresAccountStore {
             .map(|row| WatchedAccount {
                 address: row.get("address"),
                 label: row.get("label"),
+                first_ledger: row.get::<Option<i32>, _>("first_ledger").map(|l| l as u32),
             })
             .collect())
     }
@@ -143,25 +169,30 @@ mod tests {
     #[tokio::test]
     async fn add_is_idempotent_and_keeps_add_order() {
         let store = InMemoryAccountStore::default();
-        store.add("G_ONE", Some("Acme")).await.unwrap();
-        store.add("G_TWO", None).await.unwrap();
-        store.add("G_ONE", None).await.unwrap();
+        store.add("G_ONE", Some("Acme"), Some(100)).await.unwrap();
+        store.add("G_TWO", None, None).await.unwrap();
+        store.add("G_ONE", None, Some(999)).await.unwrap();
 
         let list = store.list().await.unwrap();
         assert_eq!(addresses(list.clone()), vec!["G_ONE", "G_TWO"]);
         assert_eq!(list[0].label.as_deref(), Some("Acme"));
+        // The first ledger is kept from the original add.
+        assert_eq!(list[0].first_ledger, Some(100));
     }
 
     #[tokio::test]
     async fn remove_then_add_resumes_watching() {
         let store = InMemoryAccountStore::default();
-        store.add("G_ONE", None).await.unwrap();
-        store.add("G_TWO", None).await.unwrap();
+        store.add("G_ONE", None, Some(999)).await.unwrap();
+        store.add("G_TWO", None, None).await.unwrap();
 
         store.remove("G_ONE").await.unwrap();
         assert_eq!(addresses(store.list().await.unwrap()), vec!["G_TWO"]);
 
-        store.add("G_ONE", Some("Renamed")).await.unwrap();
+        store
+            .add("G_ONE", Some("Renamed"), Some(500))
+            .await
+            .unwrap();
         let list = store.list().await.unwrap();
         assert_eq!(addresses(list.clone()), vec!["G_ONE", "G_TWO"]);
         assert_eq!(list[0].label.as_deref(), Some("Renamed"));

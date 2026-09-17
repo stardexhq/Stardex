@@ -76,6 +76,9 @@ pub struct StreamSpec {
     pub target: String,
     pub kind: StreamKind,
     pub filters: Vec<EventFilter>,
+    /// Where to start when the stream has no saved cursor. `None` starts at the
+    /// current ledger.
+    pub start_ledger: Option<u32>,
 }
 
 impl StreamSpec {
@@ -85,6 +88,7 @@ impl StreamSpec {
             target: contract_id.to_string(),
             kind: StreamKind::Contract,
             filters: vec![EventFilter::contract(contract_id)],
+            start_ledger: None,
         }
     }
 
@@ -95,7 +99,13 @@ impl StreamSpec {
             target: address.to_string(),
             kind: StreamKind::Account,
             filters: vec![EventFilter::transfers_to(address)?],
+            start_ledger: None,
         })
+    }
+
+    pub fn with_start_ledger(mut self, ledger: Option<u32>) -> Self {
+        self.start_ledger = ledger;
+        self
     }
 }
 
@@ -175,6 +185,11 @@ impl Ingestor {
         self.run(spec, true).await
     }
 
+    /// Stream any [`StreamSpec`] until caught up to the tip, then return.
+    pub async fn catch_up_stream(&mut self, spec: &StreamSpec) -> Result<(), IngestError> {
+        self.run(spec, false).await
+    }
+
     /// Shared streaming loop. When `continuous` is true it polls forever; when
     /// false it returns as soon as it reaches the tip (a page with no events).
     async fn run(&mut self, spec: &StreamSpec, continuous: bool) -> Result<(), IngestError> {
@@ -183,15 +198,22 @@ impl Ingestor {
 
         self.restore_cursor(stream).await?;
 
-        // With no saved cursor, start from the current tip to capture new events.
+        // With no saved cursor, start where the stream asks (e.g. the ledger an
+        // account was added at) or else at the current tip.
         let mut start_ledger = match &self.cursor.last_event_id {
             Some(_) => None,
             None if self.cursor.last_ledger > 0 => Some(self.cursor.last_ledger),
-            None => {
-                let tip = client.latest_ledger().await?;
-                println!("starting from current ledger {tip}");
-                Some(tip)
-            }
+            None => match spec.start_ledger {
+                Some(ledger) => {
+                    println!("{stream}: starting from ledger {ledger}");
+                    Some(ledger)
+                }
+                None => {
+                    let tip = client.latest_ledger().await?;
+                    println!("starting from current ledger {tip}");
+                    Some(tip)
+                }
+            },
         };
 
         loop {

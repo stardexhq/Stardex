@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::{
     AccountStore, ContractStore, CursorStore, EventSink, IngestError, Ingestor, StreamSpec,
@@ -57,7 +57,7 @@ impl StreamRegistry for CombinedRegistry {
 
         for account in self.accounts.list().await? {
             match StreamSpec::account(&account.address) {
-                Ok(spec) => specs.push(spec),
+                Ok(spec) => specs.push(spec.with_start_ledger(account.first_ledger)),
                 // Addresses are validated on add, so this only catches rows
                 // edited by hand. Skip them rather than stop every stream.
                 Err(e) => eprintln!("stardex: skipping watched account: {e}"),
@@ -106,6 +106,33 @@ impl<F: IngestorFactory> Supervisor<F> {
             }
             tokio::time::sleep(self.reload_interval).await;
         }
+    }
+
+    /// Catch every stream in `specs` up to the chain tip at the same time, then
+    /// return. For scheduled jobs with no always-on worker. Returns the streams
+    /// that failed, so the caller can report them; the others still finish.
+    pub async fn catch_up(&self, specs: Vec<StreamSpec>) -> Vec<(String, IngestError)> {
+        let mut tasks = JoinSet::new();
+        for spec in specs {
+            let rpc_url = self.rpc_url.clone();
+            let factory = Arc::clone(&self.factory);
+            tasks.spawn(async move {
+                let mut ingestor = Ingestor::with_store(rpc_url, factory.cursor_store())
+                    .with_event_sink(factory.sink(&spec));
+                let result = ingestor.catch_up_stream(&spec).await;
+                (spec.key, result)
+            });
+        }
+
+        let mut failures = Vec::new();
+        while let Some(joined) = tasks.join_next().await {
+            match joined {
+                Ok((key, Ok(()))) => println!("stardex: {key} caught up"),
+                Ok((key, Err(e))) => failures.push((key, e)),
+                Err(e) => failures.push(("task".into(), IngestError::Store(e.to_string()))),
+            }
+        }
+        failures
     }
 
     /// Start a task for every new stream and stop the ones no longer wanted.
@@ -177,7 +204,10 @@ mod tests {
         let contracts = InMemoryContractStore::default();
         contracts.register("CABC", 1).await.unwrap();
         let accounts = InMemoryAccountStore::default();
-        accounts.add(ACCOUNT, Some("Acme")).await.unwrap();
+        accounts
+            .add(ACCOUNT, Some("Acme"), Some(4_700_000))
+            .await
+            .unwrap();
 
         let registry = CombinedRegistry::new(Box::new(contracts), Box::new(accounts));
         let keys: Vec<String> = registry
@@ -192,10 +222,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn account_streams_start_at_the_ledger_they_were_added() {
+        let accounts = InMemoryAccountStore::default();
+        accounts.add(ACCOUNT, None, Some(4_700_000)).await.unwrap();
+        let registry = CombinedRegistry::new(
+            Box::new(InMemoryContractStore::default()),
+            Box::new(accounts),
+        );
+        let specs = registry.streams().await.unwrap();
+        assert_eq!(specs[0].start_ledger, Some(4_700_000));
+    }
+
+    #[tokio::test]
+    async fn catch_up_reports_streams_that_fail() {
+        let supervisor = Supervisor::new("http://127.0.0.1:1", NoopFactory);
+        let specs = vec![StreamSpec::contract("CABC")];
+        // Unroutable RPC: the stream fails fast on the first request.
+        let failures = tokio::time::timeout(Duration::from_secs(60), supervisor.catch_up(specs))
+            .await
+            .expect("catch_up returns");
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].0, "CABC");
+    }
+
+    #[tokio::test]
     async fn combined_registry_skips_invalid_accounts() {
         let accounts = InMemoryAccountStore::default();
-        accounts.add("not-an-address", None).await.unwrap();
-        accounts.add(ACCOUNT, None).await.unwrap();
+        accounts.add("not-an-address", None, None).await.unwrap();
+        accounts.add(ACCOUNT, None, None).await.unwrap();
 
         let registry = CombinedRegistry::new(
             Box::new(InMemoryContractStore::default()),
