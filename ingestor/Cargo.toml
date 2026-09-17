@@ -1,8 +1,8 @@
 # Cargo workspace for the Stardex ingestor (the Rust "engine" wing).
-# Three crates: the core watcher, the decoders, and the CLI.
+# Crates: the core watcher, the decoders, the reconcile engine, and the CLI.
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/decoders", "crates/cli"]
+members = ["crates/core", "crates/decoders", "crates/reconcile", "crates/cli"]
 
 [workspace.package]
 version = "0.0.1"
