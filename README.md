@@ -201,6 +201,28 @@ cargo run -p stardex-cli -- payments list --account <G_ADDRESS>
 
 Payments sent to any `M...` address built on it arrive under the base `G...` address with the ID kept, so there is no need to watch muxed addresses separately. Watching starts from the current ledger. Manage watched accounts with `accounts list` and `accounts remove <G_ADDRESS>`.
 
+### Match payments to invoices
+
+Create an invoice for a watched account. Each one gets a reference number, and the customer pays with it either as a muxed address or as a memo ID:
+
+```bash
+cargo run -p stardex-cli -- invoices add <G_ADDRESS> 5 --customer "Acme Ltd"
+# invoice INV-100001 for 5.0000000 XLM
+#   pay to:  MCN4...GUEKMQ
+#   or to:   GCN4...LN4LGI with memo ID 100001
+```
+
+Run the reconcile engine next to `stardex run`. It matches each recorded payment to its invoice and keeps invoice status up to date:
+
+```bash
+cargo run -p stardex-cli -- reconcile          # add --once to match what is waiting and exit
+cargo run -p stardex-cli -- invoices list
+# INV-100002  partial  3.0000000 of 5.0000000 XLM  ref 100002  (Globex)
+# INV-100001  paid     5.0000000 of 5.0000000 XLM  ref 100001  (Acme Ltd)
+```
+
+A payment with no usable reference, an unknown reference, the wrong asset, or for a cancelled invoice stays unmatched with a reason. See [`docs/reconciliation.md`](./docs/reconciliation.md) for exactly how matching works.
+
 ### Get events pushed to you (Streams)
 
 Rather than polling `/events`, subscribe a URL and Stardex posts each matching event to it as it is indexed:
@@ -291,6 +313,12 @@ stardex/
   - [x] add/remove contracts at runtime without a restart (`stardex add` / `remove`)
   - [x] watch accounts for incoming payments alongside contracts (`stardex accounts add`)
   - [x] record incoming payments with their memo or muxed ID (`payments` table, `stardex payments list`)
+- [ ] **M9: Payment reconciliation.**
+  - [x] invoices with a unique reference, paid by muxed address or memo (`stardex invoices add`)
+  - [x] match payments to invoices: paid, partial, overpaid, or unmatched with a reason (`stardex reconcile`)
+  - [ ] invoice, payment and export endpoints in [stardex-backend](https://github.com/stardexhq/stardex-backend), plus manual matching
+  - [ ] value each payment in a home currency at the time it arrived
+  - [ ] journal entries and sync to Xero and QuickBooks
 
 ## Contributing
 

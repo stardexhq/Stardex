@@ -1607,6 +1607,7 @@ version = "0.0.1"
 dependencies = [
  "stardex-core",
  "stardex-decoders",
+ "stardex-reconcile",
  "tokio",
 ]
 
@@ -1633,6 +1634,16 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "serde_json",
+ "stardex-core",
+ "stellar-xdr",
+ "tokio",
+]
+
+[[package]]
+name = "stardex-reconcile"
+version = "0.0.1"
+dependencies = [
+ "sqlx",
  "stardex-core",
  "stellar-xdr",
  "tokio",

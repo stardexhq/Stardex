@@ -1,0 +1,17 @@
+[package]
+name = "stardex-reconcile"
+description = "Matches recorded payments to invoices."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+stardex-core = { path = "../core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+] }
+# Validating addresses and building muxed (M...) payment addresses.
+stellar-xdr = { version = "28", features = ["std"] }
