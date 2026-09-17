@@ -12,6 +12,8 @@ use stardex_core::{
     TeeSink,
 };
 use stardex_decoders::{default_registry, DecodingSink, PaymentSink};
+use stardex_reconcile::stellar::{format_amount, muxed_address, parse_amount};
+use stardex_reconcile::{Engine, InvoiceStatus, Invoices, NewInvoice};
 
 #[tokio::main]
 async fn main() {
@@ -28,6 +30,8 @@ async fn main() {
         Some("payments") if args.get(1).map(String::as_str) == Some("list") => {
             cmd_payments_list(&args).await
         }
+        Some("invoices") => cmd_invoices(&args).await,
+        Some("reconcile") => cmd_reconcile(&args).await,
         Some("contracts") if args.get(1).map(String::as_str) == Some("list") => {
             cmd_contracts_list().await
         }
@@ -258,9 +262,127 @@ fn display_amount(amount: i128, asset: &str) -> String {
     if asset != "native" && !asset.contains(':') {
         return amount.to_string();
     }
-    let sign = if amount < 0 { "-" } else { "" };
-    let abs = amount.unsigned_abs();
-    format!("{sign}{}.{:07}", abs / 10_000_000, abs % 10_000_000)
+    format_amount(amount)
+}
+
+/// `stardex reconcile [--once]` — match recorded payments to invoices. Runs as
+/// its own process next to `stardex run`; `--once` matches what is waiting and
+/// exits, for scheduled jobs.
+async fn cmd_reconcile(args: &[String]) {
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let engine = Engine::new(pool);
+    if args.iter().any(|a| a == "--once") {
+        engine.run_once().await;
+    } else {
+        engine.run().await;
+    }
+}
+
+/// `stardex invoices <add|list>` — create and list invoices.
+async fn cmd_invoices(args: &[String]) {
+    match args.get(1).map(String::as_str) {
+        Some("add") => cmd_invoices_add(args).await,
+        Some("list") => cmd_invoices_list(args).await,
+        _ => {
+            eprintln!("usage: stardex invoices <add|list>");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `stardex invoices add <account> <amount> [--asset <asset>] [--number <n>]
+/// [--customer <name>] [--description <text>]` — create an invoice and print
+/// how to pay it.
+async fn cmd_invoices_add(args: &[String]) {
+    let usage = "usage: stardex invoices add <account> <amount> [--asset native|CODE:ISSUER] \
+                 [--number <n>] [--customer <name>] [--description <text>]";
+    let (Some(account), Some(amount)) = (positional(args, 2), positional(args, 3)) else {
+        eprintln!("{usage}");
+        std::process::exit(2);
+    };
+    let amount = parse_amount(amount).unwrap_or_else(|e| {
+        eprintln!("stardex: {e}");
+        std::process::exit(2);
+    });
+
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let invoice = Invoices::from_pool(pool)
+        .create(&NewInvoice {
+            account: account.to_string(),
+            asset: flag(args, "--asset").unwrap_or("native").to_string(),
+            amount,
+            number: flag(args, "--number").map(Into::into),
+            customer_name: flag(args, "--customer").map(Into::into),
+            description: flag(args, "--description").map(Into::into),
+        })
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("stardex: {e}");
+            std::process::exit(1);
+        });
+
+    let pay_to = muxed_address(&invoice.account, invoice.reference as u64).unwrap_or_else(|e| {
+        eprintln!("stardex: {e}");
+        std::process::exit(1);
+    });
+    println!(
+        "invoice {} for {} {}",
+        invoice.number,
+        display_amount(invoice.amount, &invoice.asset),
+        asset_code(&invoice.asset)
+    );
+    println!("  pay to:  {pay_to}");
+    println!(
+        "  or to:   {} with memo ID {}",
+        invoice.account, invoice.reference
+    );
+}
+
+/// `stardex invoices list [--account <address>] [--status <status>] [--limit <n>]`.
+async fn cmd_invoices_list(args: &[String]) {
+    let status = flag(args, "--status").map(|raw| {
+        InvoiceStatus::parse(raw).unwrap_or_else(|| {
+            eprintln!("stardex: --status must be open, partial, paid, overpaid or cancelled");
+            std::process::exit(2);
+        })
+    });
+    let limit = match flag(args, "--limit") {
+        Some(raw) => raw.parse::<i64>().unwrap_or_else(|_| {
+            eprintln!("stardex: --limit must be a number, got {raw}");
+            std::process::exit(2);
+        }),
+        None => 20,
+    };
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let invoices = Invoices::from_pool(pool)
+        .list(flag(args, "--account"), status, limit)
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    if invoices.is_empty() {
+        eprintln!("no invoices");
+        return;
+    }
+    for inv in invoices {
+        println!(
+            "{}  {:<9}  {} of {} {}  ref {}{}",
+            inv.number,
+            inv.status.as_str(),
+            display_amount(inv.amount_received, &inv.asset),
+            display_amount(inv.amount, &inv.asset),
+            asset_code(&inv.asset),
+            inv.reference,
+            inv.customer_name
+                .map(|c| format!("  ({c})"))
+                .unwrap_or_default(),
+        );
+    }
 }
 
 fn asset_code(asset: &str) -> &str {
@@ -522,6 +644,11 @@ fn usage() {
     eprintln!(
         "  stardex payments list                  recent incoming payments; --account and --limit filter"
     );
+    eprintln!();
+    eprintln!("invoices (match payments to what customers owe):");
+    eprintln!("  stardex invoices add <account> <amount> create an invoice; --asset, --number, --customer");
+    eprintln!("  stardex invoices list                  list invoices; --account, --status, --limit filter");
+    eprintln!("  stardex reconcile [--once]             match payments to invoices; --once matches and exits");
     eprintln!();
     eprintln!("streams (push indexed events to webhooks):");
     eprintln!("  stardex streams [--once]               run the delivery dispatcher; --once drains and exits");

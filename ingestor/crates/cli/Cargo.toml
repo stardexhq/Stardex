@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 stardex-core = { path = "../core" }
 stardex-decoders = { path = "../decoders" }
+stardex-reconcile = { path = "../reconcile" }
 # Async runtime to drive the streaming ingestor.
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # TODO(#28/#29): swap the hand-rolled arg parsing for `clap`.
