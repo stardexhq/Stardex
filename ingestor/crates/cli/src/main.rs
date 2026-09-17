@@ -8,9 +8,10 @@ use stardex_core::{
     connect_pool, AccountStore, CombinedRegistry, ContractStore, CursorStore, Dispatcher,
     EventSink, EventStore, InMemoryCursorStore, InMemoryEventStore, IngestError, Ingestor,
     IngestorFactory, PgPool, PostgresAccountStore, PostgresContractStore, PostgresCursorStore,
-    PostgresEventStore, StreamSpec, Subscriptions, Supervisor,
+    PostgresEventStore, PostgresPaymentStore, StreamKind, StreamSpec, Subscriptions, Supervisor,
+    TeeSink,
 };
-use stardex_decoders::{default_registry, DecodingSink};
+use stardex_decoders::{default_registry, DecodingSink, PaymentSink};
 
 #[tokio::main]
 async fn main() {
@@ -24,6 +25,9 @@ async fn main() {
         Some("streams") => cmd_streams(&args).await,
         Some("subscriptions") => cmd_subscriptions(&args).await,
         Some("accounts") => cmd_accounts(&args).await,
+        Some("payments") if args.get(1).map(String::as_str) == Some("list") => {
+            cmd_payments_list(&args).await
+        }
         Some("contracts") if args.get(1).map(String::as_str) == Some("list") => {
             cmd_contracts_list().await
         }
@@ -209,6 +213,63 @@ async fn cmd_accounts_list() {
     }
 }
 
+/// `stardex payments list [--account <address>] [--limit <n>]` — print recent
+/// incoming payments, newest first.
+async fn cmd_payments_list(args: &[String]) {
+    let limit = match flag(args, "--limit") {
+        Some(raw) => raw.parse::<i64>().unwrap_or_else(|_| {
+            eprintln!("stardex: --limit must be a number, got {raw}");
+            std::process::exit(2);
+        }),
+        None => 20,
+    };
+    let pool = connect_pool(&require_database_url())
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+    let payments = PostgresPaymentStore::from_pool(pool)
+        .recent(flag(args, "--account"), limit)
+        .await
+        .unwrap_or_else(|e| exit_db(e));
+
+    if payments.is_empty() {
+        eprintln!("no payments recorded yet");
+        return;
+    }
+    for p in payments {
+        let reference = match (&p.reference_type, &p.reference) {
+            (Some(kind), Some(value)) => format!("{kind}:{value}"),
+            _ => "-".to_string(),
+        };
+        println!(
+            "{}  {} {}  from {}  ref {}  tx {}",
+            p.closed_at.as_deref().unwrap_or("?"),
+            display_amount(p.amount, &p.asset),
+            asset_code(&p.asset),
+            p.from_address,
+            reference,
+            p.tx_hash,
+        );
+    }
+}
+
+/// Classic assets (XLM and `CODE:ISSUER`) use 7 decimals. Custom token
+/// decimals are unknown here, so their raw units are shown.
+fn display_amount(amount: i128, asset: &str) -> String {
+    if asset != "native" && !asset.contains(':') {
+        return amount.to_string();
+    }
+    let sign = if amount < 0 { "-" } else { "" };
+    let abs = amount.unsigned_abs();
+    format!("{sign}{}.{:07}", abs / 10_000_000, abs % 10_000_000)
+}
+
+fn asset_code(asset: &str) -> &str {
+    match asset {
+        "native" => "XLM",
+        other => other.split(':').next().unwrap_or(other),
+    }
+}
+
 /// `stardex accounts remove <address>` — stop watching an account.
 async fn cmd_accounts_remove(args: &[String]) {
     let Some(address) = positional(args, 2) else {
@@ -359,9 +420,20 @@ impl IngestorFactory for PgFactory {
         Box::new(PostgresCursorStore::from_pool(self.pool.clone()))
     }
 
-    fn sink(&self, _spec: &StreamSpec) -> Box<dyn EventSink> {
+    fn sink(&self, spec: &StreamSpec) -> Box<dyn EventSink> {
         let store: Box<dyn EventStore> = Box::new(PostgresEventStore::from_pool(self.pool.clone()));
-        Box::new(DecodingSink::new(default_registry(), store))
+        let decoding = Box::new(DecodingSink::new(default_registry(), store));
+        match spec.kind {
+            StreamKind::Contract => decoding,
+            // Account streams also record each incoming transfer as a payment.
+            StreamKind::Account => Box::new(TeeSink::new(vec![
+                decoding,
+                Box::new(PaymentSink::new(
+                    spec.target.clone(),
+                    Box::new(PostgresPaymentStore::from_pool(self.pool.clone())),
+                )),
+            ])),
+        }
     }
 }
 
@@ -447,10 +519,33 @@ fn usage() {
     eprintln!(
         "  stardex accounts remove <address>      stop watching an account, keeping its history"
     );
+    eprintln!(
+        "  stardex payments list                  recent incoming payments; --account and --limit filter"
+    );
     eprintln!();
     eprintln!("streams (push indexed events to webhooks):");
     eprintln!("  stardex streams [--once]               run the delivery dispatcher; --once drains and exits");
     eprintln!("  stardex subscriptions add <url>        subscribe a webhook; --contract and --kind filter it");
     eprintln!("  stardex subscriptions list             list subscriptions");
     eprintln!("  stardex subscriptions remove <id>      stop delivering to a subscription");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classic_amounts_show_seven_decimals() {
+        assert_eq!(display_amount(50_000_000, "native"), "5.0000000");
+        assert_eq!(display_amount(1, "USDC:GA5Z"), "0.0000001");
+        assert_eq!(display_amount(-25_000_000, "native"), "-2.5000000");
+    }
+
+    #[test]
+    fn custom_token_amounts_stay_raw() {
+        assert_eq!(display_amount(1_000, "CTOKEN"), "1000");
+        assert_eq!(asset_code("CTOKEN"), "CTOKEN");
+        assert_eq!(asset_code("native"), "XLM");
+        assert_eq!(asset_code("USDC:GA5Z"), "USDC");
+    }
 }
