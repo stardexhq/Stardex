@@ -306,7 +306,10 @@ async fn cmd_reconcile(args: &[String]) {
         .unwrap_or_else(|e| exit_db(e));
     let engine = Engine::new(pool);
     if args.iter().any(|a| a == "--once") {
-        engine.run_once().await;
+        if let Err(e) = engine.run_once().await {
+            eprintln!("stardex: reconcile failed: {e}");
+            std::process::exit(1);
+        }
     } else {
         engine.run().await;
     }
@@ -450,7 +453,10 @@ async fn cmd_streams(args: &[String]) {
         .unwrap_or_else(|e| exit_db(e));
     let dispatcher = Dispatcher::new(pool);
     if once {
-        dispatcher.run_once().await;
+        if let Err(e) = dispatcher.run_once().await {
+            eprintln!("stardex: streams failed: {e}");
+            std::process::exit(1);
+        }
     } else {
         dispatcher.run().await;
     }
