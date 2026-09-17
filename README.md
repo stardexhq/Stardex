@@ -163,8 +163,9 @@ To run your own instance:
 > Requires Rust, and Docker (or a local Postgres).
 
 ```bash
-# 1. start Postgres (auto-applies the schema in db/migrations)
+# 1. start Postgres, then bring the schema up to date
 docker compose up -d
+DATABASE_URL=postgres://stardex:stardex@localhost:5432/stardex scripts/migrate.sh
 
 # 2. register the contracts you want to index, then index them all at once
 cd ingestor

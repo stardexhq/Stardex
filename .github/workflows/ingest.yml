@@ -31,6 +31,13 @@ jobs:
         with:
           workspaces: ingestor
 
+      # Bring the hosted database up to the schema this commit expects, so a
+      # migration that was merged but not applied can never break the steps below.
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: scripts/migrate.sh
+
       - name: Build ingester
         working-directory: ingestor
         run: cargo build --release -p stardex-cli
