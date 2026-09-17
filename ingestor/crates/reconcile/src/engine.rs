@@ -37,32 +37,48 @@ impl Engine {
     pub async fn run(&self) {
         println!("stardex: reconcile engine started");
         loop {
-            self.tick().await;
+            // Errors are logged by `tick`; keep going and retry next time.
+            let _ = self.tick().await;
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     }
 
     /// Match everything currently waiting, then return. For scheduled jobs.
-    pub async fn run_once(&self) {
-        while self.tick().await > 0 {}
+    /// Returns the first error, so a scheduled job can fail visibly instead of
+    /// reporting success after doing nothing.
+    pub async fn run_once(&self) -> Result<(), IngestError> {
+        loop {
+            let (work, error) = self.tick().await;
+            if let Some(e) = error {
+                return Err(e);
+            }
+            if work == 0 {
+                break;
+            }
+        }
         println!("stardex: reconcile caught up");
+        Ok(())
     }
 
     /// One pass over new payments and one recheck pass. Returns how much work
-    /// was done, so `run_once` knows when to stop.
-    async fn tick(&self) -> u64 {
+    /// was done, so `run_once` knows when to stop, and the first error if a
+    /// pass failed (already logged).
+    async fn tick(&self) -> (u64, Option<IngestError>) {
+        let mut error = None;
         let read = self.new_payments_pass().await.unwrap_or_else(|e| {
             eprintln!("stardex: reconcile pass failed: {e}");
+            error = Some(e);
             0
         });
         let rematched = self.recheck_pass().await.unwrap_or_else(|e| {
             eprintln!("stardex: reconcile recheck failed: {e}");
+            error.get_or_insert(e);
             0
         });
         if rematched > 0 {
             println!("stardex: matched {rematched} earlier payment(s) to new invoices");
         }
-        read + rematched
+        (read + rematched, error)
     }
 
     /// Decide every payment recorded since the last pass. The cursor only
@@ -359,7 +375,7 @@ mod tests {
             .await;
 
         let engine = Engine::new(f.pool.clone());
-        engine.run_once().await;
+        engine.run_once().await.unwrap();
 
         assert_eq!(
             f.invoice_state(paid).await,
@@ -396,7 +412,7 @@ mod tests {
         let (late, _) = f
             .invoice("4", "native", Some(&format!("{}-LATE", f.account)))
             .await;
-        engine.run_once().await;
+        engine.run_once().await.unwrap();
         assert_eq!(
             f.invoice_state(late).await,
             ("paid".into(), "40000000".into())
@@ -404,7 +420,7 @@ mod tests {
         assert_eq!(f.payment_state("late").await, ("matched".into(), None));
 
         // Running again changes nothing.
-        engine.run_once().await;
+        engine.run_once().await.unwrap();
         let allocations: i64 = sqlx::query_scalar(
             "select count(*) from payment_allocations a join payments p on p.id = a.payment_id
              where p.account = $1",

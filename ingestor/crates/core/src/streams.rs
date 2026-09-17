@@ -56,7 +56,8 @@ impl Dispatcher {
     pub async fn run(&self) {
         println!("stardex: streams dispatcher started");
         loop {
-            self.tick().await;
+            // Errors are logged by `tick`; keep going and retry next time.
+            let _ = self.tick().await;
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     }
@@ -65,23 +66,32 @@ impl Dispatcher {
     /// scheduled jobs (e.g. a cron worker that wakes, delivers, and exits) where
     /// there is no always-on process. Deliveries that fail are left for a later
     /// run with their backoff, not retried in a tight loop here.
-    pub async fn run_once(&self) {
+    ///
+    /// Returns the first pass error, so a scheduled job fails visibly. A
+    /// receiver rejecting a delivery is not an error here; it is retried later.
+    pub async fn run_once(&self) -> Result<(), IngestError> {
         println!("stardex: streams dispatcher catching up");
         loop {
-            let (queued, attempted) = self.tick().await;
+            let (queued, attempted, error) = self.tick().await;
+            if let Some(e) = error {
+                return Err(e);
+            }
             if queued == 0 && attempted == 0 {
                 break;
             }
         }
         println!("stardex: streams caught up");
+        Ok(())
     }
 
     /// One enqueue pass and one delivery pass. Returns how many were queued and
     /// attempted, so `run_once` can loop until there is nothing left to do. Pass
     /// errors are logged, not fatal.
-    async fn tick(&self) -> (u64, u64) {
+    async fn tick(&self) -> (u64, u64, Option<IngestError>) {
+        let mut error = None;
         let queued = self.enqueue_pass().await.unwrap_or_else(|e| {
             eprintln!("stardex: could not queue deliveries: {e}");
+            error = Some(e);
             0
         });
         if queued > 0 {
@@ -89,9 +99,10 @@ impl Dispatcher {
         }
         let attempted = self.deliver_pass().await.unwrap_or_else(|e| {
             eprintln!("stardex: delivery pass failed: {e}");
+            error.get_or_insert(e);
             0
         });
-        (queued, attempted)
+        (queued, attempted, error)
     }
 
     /// Read the next slice of events and write one delivery row per matching
