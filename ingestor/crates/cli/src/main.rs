@@ -6,10 +6,10 @@ use std::env;
 use stardex_core::rpc_client::RpcClient;
 use stardex_core::{
     connect_pool, AccountStore, CombinedRegistry, ContractStore, CursorStore, Dispatcher,
-    EventSink, EventStore, InMemoryCursorStore, InMemoryEventStore, IngestError, Ingestor,
-    IngestorFactory, PgPool, PostgresAccountStore, PostgresContractStore, PostgresCursorStore,
-    PostgresEventStore, PostgresPaymentStore, StreamKind, StreamSpec, Subscriptions, Supervisor,
-    TeeSink,
+    EventSink, EventStore, InMemoryContractStore, InMemoryCursorStore, InMemoryEventStore,
+    IngestError, Ingestor, IngestorFactory, PgPool, PostgresAccountStore, PostgresContractStore,
+    PostgresCursorStore, PostgresEventStore, PostgresPaymentStore, StreamKind, StreamRegistry,
+    StreamSpec, Subscriptions, Supervisor, TeeSink,
 };
 use stardex_decoders::{default_registry, DecodingSink, PaymentSink};
 use stardex_reconcile::stellar::{format_amount, muxed_address, parse_amount};
@@ -23,7 +23,7 @@ async fn main() {
         Some("index") => cmd_index(&args).await,
         Some("add") => cmd_add(&args).await,
         Some("remove") => cmd_remove(&args).await,
-        Some("run") => cmd_run().await,
+        Some("run") => cmd_run(&args).await,
         Some("streams") => cmd_streams(&args).await,
         Some("subscriptions") => cmd_subscriptions(&args).await,
         Some("accounts") => cmd_accounts(&args).await,
@@ -120,10 +120,13 @@ async fn cmd_remove(args: &[String]) {
     println!("stopped indexing {contract}; everything it already indexed is kept");
 }
 
-/// `stardex run` — index every registered contract and watched account
-/// concurrently, following both registries so adds and removes take effect
-/// without a restart.
-async fn cmd_run() {
+/// `stardex run [--once] [--accounts-only]` — index every registered contract
+/// and watched account concurrently, following both registries so adds and
+/// removes take effect without a restart. `--once` catches everything up to the
+/// tip and exits, for scheduled jobs. `--accounts-only` skips contract streams.
+async fn cmd_run(args: &[String]) {
+    let once = args.iter().any(|a| a == "--once");
+    let accounts_only = args.iter().any(|a| a == "--accounts-only");
     let pool = connect_pool(&require_database_url())
         .await
         .unwrap_or_else(|e| exit_db(e));
@@ -149,13 +152,31 @@ async fn cmd_run() {
         );
     }
 
+    let contract_store: Box<dyn ContractStore> = if accounts_only {
+        Box::new(InMemoryContractStore::default())
+    } else {
+        Box::new(PostgresContractStore::from_pool(pool.clone()))
+    };
     let registry = CombinedRegistry::new(
-        Box::new(PostgresContractStore::from_pool(pool.clone())),
+        contract_store,
         Box::new(PostgresAccountStore::from_pool(pool.clone())),
     );
-    Supervisor::new(default_rpc(), PgFactory { pool })
-        .watch(Box::new(registry))
-        .await;
+    let supervisor = Supervisor::new(default_rpc(), PgFactory { pool });
+
+    if !once {
+        supervisor.watch(Box::new(registry)).await;
+        return;
+    }
+
+    let specs = registry.streams().await.unwrap_or_else(|e| exit_db(e));
+    let failures = supervisor.catch_up(specs).await;
+    if !failures.is_empty() {
+        for (key, e) in &failures {
+            eprintln!("stardex: {key} failed: {e}");
+        }
+        std::process::exit(1);
+    }
+    println!("stardex: all streams caught up");
 }
 
 /// `stardex accounts <add|list|remove>` — manage watched accounts.
@@ -184,15 +205,26 @@ async fn cmd_accounts_add(args: &[String]) {
         eprintln!("stardex: {e}");
         std::process::exit(2);
     }
+    // Remember where watching began, so the first run starts here instead of at
+    // whatever the tip is by then.
+    let tip = RpcClient::new(default_rpc())
+        .latest_ledger()
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("stardex: could not reach RPC to record the starting ledger: {e}");
+            std::process::exit(1);
+        });
 
     let pool = connect_pool(&require_database_url())
         .await
         .unwrap_or_else(|e| exit_db(e));
     PostgresAccountStore::from_pool(pool)
-        .add(address, flag(args, "--label"))
+        .add(address, flag(args, "--label"), Some(tip))
         .await
         .unwrap_or_else(|e| exit_db(e));
-    println!("watching {address}; a running `stardex run` picks it up within seconds");
+    println!(
+        "watching {address} from ledger {tip}; a running `stardex run` picks it up within seconds"
+    );
 }
 
 /// `stardex accounts list` — print watched accounts.
@@ -627,6 +659,7 @@ fn usage() {
     eprintln!("stardex — Stellar/Soroban indexer\n");
     eprintln!("usage:");
     eprintln!("  stardex run                            index all registered contracts and watched accounts, following changes live");
+    eprintln!("  stardex run --once [--accounts-only]   catch every stream up to the tip and exit, for scheduled jobs");
     eprintln!("  stardex add <contract_id>              register a contract to index (needs DATABASE_URL)");
     eprintln!(
         "  stardex remove <contract_id>           stop indexing a contract, keeping its history"
