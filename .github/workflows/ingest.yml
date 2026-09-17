@@ -1,7 +1,8 @@
 name: Index events
 
 # Keeps the hosted demo database fresh without an always-on server: every few
-# minutes this wakes up, catches the indexer up to the chain tip, and exits.
+# minutes this wakes up, catches everything up to the chain tip, matches new
+# payments to invoices, and exits.
 on:
   schedule:
     - cron: "*/15 * * * *" # every 15 minutes
@@ -39,6 +40,20 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: ./target/release/stardex index "$CONTRACT" --once
+
+      # Record new payments into every account added with `stardex accounts add`.
+      # Contract streams are skipped here; the step above covers the demo contract.
+      - name: Record payments to watched accounts
+        working-directory: ingestor
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./target/release/stardex run --once --accounts-only
+
+      - name: Match payments to invoices
+        working-directory: ingestor
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./target/release/stardex reconcile --once
 
       # Push freshly indexed events to any registered webhook subscriptions.
       # `--once` drains what is due and exits, matching this no-worker setup.
