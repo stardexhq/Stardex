@@ -34,7 +34,7 @@ Stardex is in active development, but the core engine is real and runs against l
 
 - [x] **Live event streaming** from Stellar RPC. Pages through a contract's events and polls for new ones, with retry/backoff through transient outages.
 - [x] **Multi-contract indexing.** Register any number of contracts (`stardex add`) and index them all at once with `stardex run`. Each contract runs on its own task with its own cursor, so one contract failing is isolated and retried without stalling the rest. Adding or removing a contract takes effect on a running indexer, no restart needed.
-- [x] **Account watching.** Watch a Stellar address (`stardex accounts add G...`) and `stardex run` records every payment into it, in any asset, including payments sent to its muxed addresses or with a memo.
+- [x] **Account watching.** Watch a Stellar address (`stardex accounts add G...`) and `stardex run` records every payment into it, in any asset, including payments sent to its muxed addresses or with a memo. Each one lands in the `payments` table with its amount, asset, sender and reference, ready to be matched to an invoice.
 - [x] **Resumable ingestion.** The cursor is persisted to Postgres, so a restart continues exactly where it left off (verified end-to-end on testnet).
 - [x] **Real transfer decoding.** Token `transfer` events, including classic payments in the CAP-67 unified format, are decoded from XDR into typed `{ from, to, amount, asset, to_muxed_id }` records. `to_muxed_id` carries the payment's muxed ID or memo, which is what lets a payment be matched to an invoice.
 - [x] **Decoded events stored in Postgres.** Each event runs through the decoder registry and is written to the `events` table; events without a decoder yet are kept raw, so nothing is lost.
@@ -192,7 +192,14 @@ cargo run -p stardex-cli -- accounts add <G_ADDRESS> --label "My business"
 cargo run -p stardex-cli -- run
 ```
 
-Every transfer paid to that address is stored as a `transfer` event with `from`, `to`, `amount`, `asset` and, when present, `to_muxed_id` (the muxed ID or memo). Payments sent to any `M...` address built on it arrive under the base `G...` address with the ID kept, so there is no need to watch muxed addresses separately. Watching starts from the current ledger. Manage watched accounts with `accounts list` and `accounts remove <G_ADDRESS>`.
+Every transfer paid to that address is stored as a `transfer` event, and also recorded as a row in `payments` with its amount, asset, sender and reference (the muxed ID or memo, when present). Outgoing transfers and payments to itself are not recorded as payments, and each event is recorded only once, even if ingestion replays it.
+
+```bash
+cargo run -p stardex-cli -- payments list --account <G_ADDRESS>
+# 2026-09-17T10:03:52Z  5.0000000 XLM  from GDKA...  ref id:100042  tx 8a41...
+```
+
+Payments sent to any `M...` address built on it arrive under the base `G...` address with the ID kept, so there is no need to watch muxed addresses separately. Watching starts from the current ledger. Manage watched accounts with `accounts list` and `accounts remove <G_ADDRESS>`.
 
 ### Get events pushed to you (Streams)
 
@@ -283,6 +290,7 @@ stardex/
   - [x] auto-recover a contract whose cursor falls behind the RPC retention window
   - [x] add/remove contracts at runtime without a restart (`stardex add` / `remove`)
   - [x] watch accounts for incoming payments alongside contracts (`stardex accounts add`)
+  - [x] record incoming payments with their memo or muxed ID (`payments` table, `stardex payments list`)
 
 ## Contributing
 
