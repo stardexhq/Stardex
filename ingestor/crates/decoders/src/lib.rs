@@ -1,5 +1,7 @@
+pub mod payment_sink;
 pub mod sink;
 
+pub use payment_sink::PaymentSink;
 pub use sink::DecodingSink;
 
 use stardex_core::RawEvent;
